@@ -1,0 +1,17 @@
+[project]
+name = "bimap"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "aicspylibczi>=3.3.1",
+    "antspyx>=0.5.3",
+    "h5py>=3.13.0",
+    "matplotlib>=3.10.3",
+    "numpy>=2.2.5",
+    "opencv-python>=4.11.0.86",
+    "pandas>=2.2.3",
+    "polars>=1.29.0",
+    "voxelmorph>=0.2",
+]
