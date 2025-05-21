@@ -23,7 +23,8 @@ def main():
         moving = ants.image_read(all_frames[i])
         areg = ants.registration(fixed, moving, 'SyN')
         motion_corrected.append(areg['warpedmovout'])
-        ssim_errors.append(ssim(fixed.numpy(), moving.numpy(), data_range=moving.numpy().max() - moving.numpy().min()))
+        ssim_errors.append(ssim(fixed.numpy(), moving.numpy(), 
+                                data_range=moving.numpy().max() - moving.numpy().min()))
         mse_errors.append(mean_squared_error(fixed.numpy(), moving.numpy()))
     mean_ssim = sum(ssim_errors)/len(ssim_errors)
     mean_mse = sum(mse_errors)/len(ssim_errors)
