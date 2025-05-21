@@ -12,5 +12,7 @@ dependencies = [
     "pandas>=2.2.3",
     "polars>=1.29.0",
     "scikit-image>=0.25.2",
+    "scipy>=1.15.3",
+    "tqdm>=4.67.1",
     "voxelmorph>=0.2",
 ]

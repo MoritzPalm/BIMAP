@@ -35,6 +35,8 @@ dependencies = [
     { name = "pandas" },
     { name = "polars" },
     { name = "scikit-image" },
+    { name = "scipy" },
+    { name = "tqdm" },
     { name = "voxelmorph" },
 ]
 
@@ -47,6 +49,8 @@ requires-dist = [
     { name = "pandas", specifier = ">=2.2.3" },
     { name = "polars", specifier = ">=1.29.0" },
     { name = "scikit-image", specifier = ">=0.25.2" },
+    { name = "scipy", specifier = ">=1.15.3" },
+    { name = "tqdm", specifier = ">=4.67.1" },
     { name = "voxelmorph", specifier = ">=0.2" },
 ]
 
