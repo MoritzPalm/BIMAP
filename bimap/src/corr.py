@@ -43,12 +43,9 @@ def ants_reg(frame_stack: np.array, template_idx: int) -> list[np.array]:
     return motion_corrected_images
 
 
-def evaluate(corrected_images: list, template: np.array) -> tuple[list, list]:
+def evaluate(corrected_images: list[np.array], template: np.array) -> tuple[list, list]:
     """Evaluate the image registration based on the SSIM of the gradient image."""
-    ssim_list = []
-    for i in tqdm(range(len(corrected_images))):
-        ssim_list.append(ssim(template, corrected_images[i],
-                            data_range=template.max() - template.min()))
+    ssim_list = [ssim(template, moving, data_range=template.max() - template.min()) for moving in corrected_images]
     gradient_ssim_list = []
     magnitude_template = get_magnitude(template)
     data_range_template = magnitude_template.max() - magnitude_template.min()
