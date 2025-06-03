@@ -1,4 +1,5 @@
 from pathlib import Path
+from PIL import Image
 
 import ants
 import matplotlib.pyplot as plt
@@ -8,7 +9,22 @@ from scipy.signal import correlate
 from skimage.metrics import structural_similarity as ssim
 from tqdm import tqdm
 
-pth = Path("../data/low_movement/Experiment-746czi")
+
+pth = Path("../../data/low_movement/Experiment-746czi")
+
+
+def load_example_experiment() -> np.array:
+    """Load Experiment-746czi"""
+    pattern = r"frame_*.tif"
+    frame_paths = list(pth.glob(pattern))
+    if not frame_paths:
+        error_msg = f"No files found matching {pattern=}"
+        raise FileNotFoundError(error_msg)
+    return np.asarray([np.array(Image.open(path.as_posix())).astype(np.float32) for path in frame_paths])
+
+
+def save_images(arr: np.array) -> None:
+    pass
 
 def get_magnitude(img: np.array) -> np.array:
     """Calculate the magnitude of the gradient of the image using sobel filters."""
@@ -23,7 +39,9 @@ def find_highest_correlation(frame_stack: np.array, *, plot: bool =False) -> int
     for i in range(frame_stack.shape[0]-1):
         corr_2d = correlate(frame_stack[i], frame_stack[i+1], method="auto")
         mean_corrs.append(np.mean(corr_2d))
+    max_idx = int(np.argmax(mean_corrs))
     if plot:
+        plt.plot(max_idx, mean_corrs[max_idx], 'x')
         plt.plot(mean_corrs)
         plt.title("Correlation of each frame with the previous")
         plt.show()
@@ -54,4 +72,10 @@ def evaluate(corrected_images: list[np.array], template: np.array) -> tuple[list
         gradient_ssim = ssim(magnitude, magnitude_template, data_range=data_range_template)
         gradient_ssim_list.append(gradient_ssim)
     return ssim_list, gradient_ssim_list
+
+
+def float32_to_uint8(image: np.array) -> np.array:
+    """Convert float23 image type to uint8 image type."""
+    min_val, max_val = image.min(), image.max()
+    return ((image - min_val) / (max_val - min_val) * 255.0).astype(np.uint8)
 
