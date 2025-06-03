@@ -1,20 +1,21 @@
+"""utils for bimap image registration."""
+
 from pathlib import Path
-from PIL import Image
 
 import ants
 import matplotlib.pyplot as plt
 import numpy as np
+from PIL import Image
 from scipy.ndimage import sobel
 from scipy.signal import correlate
 from skimage.metrics import structural_similarity as ssim
 from tqdm import tqdm
 
-
 pth = Path("../../data/low_movement/Experiment-746czi")
 
 
 def load_example_experiment() -> np.array:
-    """Load Experiment-746czi"""
+    """Load Experiment-746czi."""
     pattern = r"frame_*.tif"
     frame_paths = list(pth.glob(pattern))
     if not frame_paths:
@@ -22,9 +23,6 @@ def load_example_experiment() -> np.array:
         raise FileNotFoundError(error_msg)
     return np.asarray([np.array(Image.open(path.as_posix())).astype(np.float32) for path in frame_paths])
 
-
-def save_images(arr: np.array) -> None:
-    pass
 
 def get_magnitude(img: np.array) -> np.array:
     """Calculate the magnitude of the gradient of the image using sobel filters."""
@@ -41,7 +39,7 @@ def find_highest_correlation(frame_stack: np.array, *, plot: bool =False) -> int
         mean_corrs.append(np.mean(corr_2d))
     max_idx = int(np.argmax(mean_corrs))
     if plot:
-        plt.plot(max_idx, mean_corrs[max_idx], 'x')
+        plt.plot(max_idx, mean_corrs[max_idx], "x")
         plt.plot(mean_corrs)
         plt.title("Correlation of each frame with the previous")
         plt.show()
@@ -78,4 +76,14 @@ def float32_to_uint8(image: np.array) -> np.array:
     """Convert float23 image type to uint8 image type."""
     min_val, max_val = image.min(), image.max()
     return ((image - min_val) / (max_val - min_val) * 255.0).astype(np.uint8)
+
+
+def save_results(corrected_images: list[np.array], path: Path, method: str) -> None:
+    """Save the results of the image registration."""
+    save_path = path / (method + "_results")
+    Path.mkdir(save_path, parents=True, exist_ok=True)
+    for i, img in enumerate(corrected_images):
+        image = Image.fromarray(img)
+        filename = save_path / f"corrected_{i}.tif"
+        image.save(filename)
 
