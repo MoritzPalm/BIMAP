@@ -18,7 +18,8 @@ dependencies = [
     "polars>=1.29.0",
     "scikit-image>=0.25.2",
     "scipy>=1.15.3",
-    "torch<2.3.0",
+    "torch>=2.6.0",
+    "torchvision>=0.21.0",
     "tqdm>=4.67.1",
     "voxelmorph>=0.2",
 ]
@@ -43,3 +44,16 @@ select = ["ALL"]
 
 [tool.ruff.lint.per-file-ignores]
 "*.ipynb" = ["T201"]
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cu124", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+torchvision = [
+  { index = "pytorch-cu124", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
