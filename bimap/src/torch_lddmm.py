@@ -1,3 +1,5 @@
+# imported from https://github.com/brianlee324/torch-lddmm
+
 import torch
 import numpy as np
 import scipy.linalg
