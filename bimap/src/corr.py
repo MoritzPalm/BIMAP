@@ -36,6 +36,7 @@ def find_highest_correlation(frame_stack: np.array, *, plot: bool =False) -> int
     mean_corrs = []
     for i in range(frame_stack.shape[0]-1):
         corr_2d = correlate(frame_stack[i], frame_stack[i+1], method="auto")
+        #np.corrcoef(...)
         mean_corrs.append(np.mean(corr_2d))
     max_idx = int(np.argmax(mean_corrs))
     if plot:
