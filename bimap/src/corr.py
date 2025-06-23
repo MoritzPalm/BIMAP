@@ -1,60 +1,94 @@
-"""utils for bimap image registration."""
-
-from pathlib import Path
+"""functions to get ROIs from pixel-wise correlation across frames"""
 
 import ants
-import matplotlib.pyplot as plt
 import numpy as np
-from PIL import Image
-from scipy.ndimage import sobel
-from scipy.signal import correlate
-from skimage.metrics import structural_similarity as ssim
 from tqdm import tqdm
-import cv2
-
-#pth = Path("../../data/low_movement/Experiment-746czi")
-pth =  Path("../../data/strong_movement/Experiment-591czi")
-
-def load_example_experiment() -> list[np.array]:
-    """Load Experiment-746czi."""
-    pattern = r"frame_*.tif"
-    frame_paths = list(pth.glob(pattern))
-    if not frame_paths:
-        error_msg = f"No files found matching {pattern=}"
-        raise FileNotFoundError(error_msg)
-    return [handle_raw_image(path) for path in frame_paths]
 
 
-def handle_raw_image(path: Path) -> np.ndarray:
-    image = Image.open(path.as_posix())
-    arr = np.array(image).byteswap().newbyteorder()
-    arr_f32 = arr.astype(np.float32) / 65535.0
-    return arr_f32
+def get_neighbor_coords(image: np.ndarray, x: int, y: int) -> list[tuple[int, int]]:
+    """Calculate the coordinates of all neighboring pixels"""
+    H, W = image.shape[0], image.shape[1]
+    x_neighbors = [-1, 0, 1]
+    y_neighbors = [-1, 0, 1]
+    neighbor_coords = []
+    for dx in x_neighbors:
+        for dy in y_neighbors:
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < W and 0 <= ny < H:
+                if not (dx == 0 and dy == 0):
+                    neighbor_coords.append((nx, ny))
+    return neighbor_coords
 
 
-def get_magnitude(img: np.array) -> np.array:
-    """Calculate the magnitude of the gradient of the image using sobel filters."""
-    g_x = sobel(img, axis=0)
-    g_y = sobel(img, axis=1)
-    return np.sqrt((g_x**2) + (g_y**2))
+def get_corr_with_neighbors(image_stack: np.ndarray, x: int, y:int) -> float:
+    """Calculate the mean correlation of given pixel with its neighbors.
+
+    :param image_stack: (N, H, W) array of N timepoints of HxW images
+    :param x: x coordinate of the pixel
+    :param y: y coordinate of the pixel
+    """
+    neighbor_coords = get_neighbor_coords(image_stack[0], x, y)
+    pixel_fl_time_series = image_stack[:, y, x]
+    neighbors_fl_time_series = np.stack([image_stack[:, ny, nx] for nx, ny in
+                                         neighbor_coords], axis=1)
+    neighbors_mean_time_series = neighbors_fl_time_series.mean(axis=1)
+    return float(np.corrcoef(pixel_fl_time_series, neighbors_mean_time_series)[0, 1])
 
 
-def find_highest_correlation(frame_stack: list[np.array], *, plot: bool =False) -> int:
-    """Find frame with maximum correlation to previous frame."""
-    corrs = []
-    for i in range(len(frame_stack)-1):
-        corr = np.corrcoef(frame_stack[i].flatten(), frame_stack[i+1].flatten())[0,1]
-        corrs.append(corr)
-    max_idx = int(np.argmax(corrs))
-    if plot:
-        plt.plot(max_idx, corrs[max_idx], "x")
-        plt.plot(corrs)
-        plt.title("Correlation of each frame with the previous")
-        plt.show()
-    return max_idx
+def calculate_all_corrs(image_stack: np.ndarray) -> np.ndarray:
+    """Calculate all individual correlations for each pixel across frames."""
+    H, W = image_stack.shape[1], image_stack.shape[2]
+    corrs = np.zeros_like(image_stack[0])
+    for x in range(W):
+        for y in range(H):
+            corr = get_corr_with_neighbors(image_stack, x, y)
+            corrs[y, x] = corr
+    return corrs
 
 
-def ants_reg(frame_stack: list[np.array], template_idx: int) -> list[np.array]:
+def build_roi_recursive(corrs: np.ndarray, center: tuple, threshold=0.5,
+                        visited: set = None) ->set:
+    """Recursive building of a single ROI"""
+    if visited is None:
+        visited = set()
+    if center in visited or corrs[center] < threshold:
+        return set()
+
+    visited.add(center)
+    roi = {center}
+    neighbors = get_neighbor_coords(corrs, center[1], center[0])
+    for x, y in neighbors:
+        if corrs[y, x] > threshold:
+            roi.update(build_roi_recursive(corrs, (y, x), threshold, visited))
+    return roi
+
+
+def build_roi(corrs, threshold, visited):
+    """Helper function to build a single ROI"""
+    masked_corrs = corrs.copy()
+    for y, x in visited:
+        masked_corrs[y, x] = -np.inf
+    roi = set()
+    center = np.unravel_index(np.argmax(masked_corrs, axis=None), corrs.shape)
+    roi.update(build_roi_recursive(corrs, center, threshold, visited))
+    return roi
+
+
+def build_rois(corrs: np.ndarray, threshold=0.5) -> list:
+    corrs_cpy = corrs.copy()
+    rois = []
+    visited = set()
+    for i in range(30000):  # building three rois
+        roi = build_roi(corrs_cpy, threshold, visited)
+        if roi:
+            rois.append(roi)
+            visited.update(roi)
+    return rois
+
+
+
+
+def ants_reg(frame_stack: list[np.ndarray], template_idx: int) -> list[np.ndarray]:
     """Image Registration using the AnTsPy package."""
     motion_corrected_images = []
     fixed = ants.from_numpy(frame_stack[template_idx])
@@ -67,44 +101,4 @@ def ants_reg(frame_stack: list[np.array], template_idx: int) -> list[np.array]:
     return motion_corrected_images
 
 
-def evaluate(corrected_images: list[np.array], template: np.array) -> tuple[list]:
-    """Evaluate the image registration based on the SSIM of the gradient image."""
-    ssim_list = [ssim(template, moving, data_range=template.max() - template.min()) for moving in corrected_images]
-    gradient_ssim_list = []
-    magnitude_template = get_magnitude(template)
-    #data_range_template = magnitude_template.max() - magnitude_template.min()
-    #for i in range(len(corrected_images)):
-        #magnitude = get_magnitude(corrected_images[i])
-        #gradient_ssim = ssim(magnitude, magnitude_template, data_range=data_range_template)
-        #gradient_ssim_list.append(gradient_ssim)
-    return ssim_list
-
-
-def float32_to_uint8(image: np.array) -> np.array:
-    """Convert float23 image type to uint8 image type."""
-    min_val, max_val = image.min(), image.max()
-    return ((image - min_val) / (max_val - min_val) * 255.0).astype(np.uint8)
-
-
-def uint8_to_float32(image: np.array) -> np.array:
-    """Convert uint8 image type to float23 image type."""
-    image = image.astype(np.float32)
-    return image / 255.0
-
-
-def save_results(corrected_images: list[np.array], path: Path, method: str) -> None:
-    """Save the results of the image registration."""
-    save_path = path / (method + "_results")
-    Path.mkdir(save_path, parents=True, exist_ok=True)
-    for i, img in enumerate(corrected_images):
-        image = Image.fromarray(img)
-        filename = save_path / f"corrected_{i}.tif"
-        image.save(filename)
-
-def denoise_stack(imgs: list[np.array]) -> np.array:
-    imgs8 = [float32_to_uint8(img) for img in imgs]
-    return [cv2.bilateralFilter(img8, d=10, sigmaColor=20, sigmaSpace=50) for img8 in imgs8]
-
-def normalize_stack(imgs: list[np.array]) -> np.array:
-    pass
 
