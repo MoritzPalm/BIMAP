@@ -96,6 +96,7 @@ def ants_reg(frame_stack: list[np.ndarray], template_idx: int) -> list[np.ndarra
     for i in tqdm(range(len(frame_stack))):
         moving = ants.from_numpy(frame_stack[i])
         areg = ants.registration(fixed, moving, "SyN")
+        # TODO: experiment with different types of transform
         motion_corrected_images.append(areg["warpedmovout"].numpy().astype(np.float32))
 
     return motion_corrected_images

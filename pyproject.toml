@@ -5,7 +5,7 @@ authors = [{name="Moritz Palm", email="moritz.palm@fau.de"}]
 description = "Nonrigid Image Segmentation for Calcium Imaging Data"
 readme = "README.md"
 license = "GPL-3.0-only"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 dependencies = [
     "antspyx>=0.5.3",
     "hatchling>=1.27.0",
@@ -23,12 +23,14 @@ dependencies = [
     "ruff>=0.11.12",
     "scikit-image>=0.25.2",
     "scipy>=1.15.3",
-    "tensorflow>=2.18.1",
-    "tf-keras>=2.18.0",
+    #"tensorflow>=2.15",
+    #"tf-keras>=2.18.0",
     "torch>=2.6.0",
     "torchvision>=0.21.0",
     "tqdm>=4.67.1",
     "voxelmorph>=0.2",
+    #"caiman @ file://${PROJECT_ROOT}/wheels/caiman-1.12.1-cp311-cp311-win_amd64.whl",
+    #"tensorflow-io-gcs-filesystem<0.33.0"
 ]
 
 [project.urls]
@@ -68,3 +70,9 @@ torch = [
 torchvision = [
   { index = "pytorch-cu124", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
 ]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+
+
