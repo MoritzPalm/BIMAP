@@ -10,7 +10,7 @@ from scipy.ndimage import sobel
 from skimage.metrics import structural_similarity as ssim
 
 #pth = Path("../../data/low_movement/Experiment-746czi")
-pth =  Path("../../data/strong_movement/Experiment-591czi")
+pth =  Path("../../data/input/strong_movement/Experiment-591czi")
 
 def load_example_experiment() -> list[np.ndarray]:
     """Load Experiment-746czi."""
@@ -84,3 +84,24 @@ def denoise_stack(imgs: list[np.ndarray]) -> list[np.ndarray]:
     imgs8 = [float32_to_uint8(img) for img in imgs]
     return [cv2.bilateralFilter(img8, d=10, sigmaColor=20, sigmaSpace=50) for img8 in imgs8]
 
+def save_and_display_video(array, filename='output.mp4', fps=30):
+    num_frames, height, width = array.shape
+
+    # Normalize and convert to uint8 if needed
+    if array.dtype != np.uint8:
+        array_min = array.min()
+        array_max = array.max()
+        array = 255 * (array - array_min) / (array_max - array_min + 1e-8)
+        array = np.clip(array, 0, 255).astype(np.uint8)
+
+    # VideoWriter setup
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(filename, fourcc, fps, (width, height), isColor=True)
+
+    for i in range(num_frames):
+        frame = array[i]
+        frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)  # <- This line is critical
+        out.write(frame)
+
+    out.release()
+    print(f"Video saved to {filename}")
