@@ -29,7 +29,7 @@ dependencies = [
     "torchvision>=0.21.0",
     "tqdm>=4.67.1",
     "voxelmorph>=0.2",
-    "caiman @ file:///C:/Users/morit/Documents/Studium/BIMAP/wheels/caiman-1.12.1-cp311-cp311-win_amd64.whl",
+    #"caiman @ file:///C:/Users/morit/Documents/Studium/BIMAP/wheels/caiman-1.12.1-cp311-cp311-win_amd64.whl",
     #"tensorflow-io-gcs-filesystem<0.33.0"
 ]
 
