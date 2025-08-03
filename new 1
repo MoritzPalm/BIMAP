@@ -1,0 +1,8 @@
+steps done to install caiman into the current repo:
+
+build caiman wheels
+import .whl file into wheels/ folder
+add caiman to pyproject.toml dependencies
+change python version to 3.11
+
+todo: fix tensorflow-io missing wheels

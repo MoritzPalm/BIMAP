@@ -52,10 +52,16 @@ def find_highest_correlation(frame_stack: list[np.ndarray], *, plot: bool=False)
     return max_idx
 
 
-def evaluate(corrected_images: list[np.ndarray], template: np.ndarray) -> list[float]:
+def evaluate(corrected_images: list[np.ndarray], images, template: np.ndarray) -> tuple[list[float], list[float], float]:
     """Evaluate the image registration based on the SSIM of the gradient image."""
     ssim_list = [ssim(template, moving, data_range=template.max() - template.min()) for moving in corrected_images]
-    return ssim_list
+    mse_list = [quantized_mse(template, moving) for moving in corrected_images]
+    summary_image_before = np.mean(images, axis=0)
+    summary_image_after = np.mean(corrected_images, axis=0)
+    crispness_before = crispness(summary_image_before)
+    crispness_after = crispness(summary_image_after)
+    crispness_improvement = crispness_after - crispness_before
+    return ssim_list, mse_list, crispness_improvement
 
 
 def float32_to_uint8(image: np.ndarray) -> np.ndarray:
@@ -105,3 +111,59 @@ def save_and_display_video(array, filename='output.mp4', fps=30):
 
     out.release()
     print(f"Video saved to {filename}")
+
+def quantize_image(image, method='percentile', thresholds=None):
+    """
+    Quantize a calcium imaging frame into 3 levels:
+    0 - background, 1 - base, 2 - high activity
+
+    params:
+        image (np.ndarray): 2D image
+        method (str): 'percentile' or 'manual'
+        thresholds (tuple): if method='manual', provide (low_thresh, high_thresh)
+
+    Returns:
+        np.ndarray: quantized image with values 0, 1, 2
+    """
+    if method == 'percentile':
+        low_thresh = np.percentile(image, 10)
+        high_thresh = np.percentile(image, 90)
+    elif method == 'manual' and thresholds:
+        low_thresh, high_thresh = thresholds
+    else:
+        raise ValueError("Invalid method or missing thresholds")
+
+    quantized = np.zeros_like(image, dtype=np.uint8)
+    quantized[(image >= low_thresh) & (image < high_thresh)] = 1
+    quantized[image >= high_thresh] = 2
+
+    return quantized
+
+def quantized_mse(image1, image2, method='percentile', thresholds=None):
+    """
+    Compute MSE between two quantized calcium imaging frames.
+
+    params:
+        image1 (np.ndarray): reference frame
+        image2 (np.ndarray): registered frame
+        method (str): quantization method
+        thresholds (tuple): manual threshold values if used
+
+    Returns:
+        float: mean squared error between quantized images
+    """
+    q1 = quantize_image(image1, method=method, thresholds=thresholds)
+    q2 = quantize_image(image2, method=method, thresholds=thresholds)
+    mse = np.mean((q1 - q2) ** 2)
+    return mse
+
+
+def crispness(image):
+    """
+    calculates the crispness value, intended to be used on a summary image before and after registration.
+    """
+    gradient = get_magnitude(image)
+    abs_gradient = np.abs(gradient)
+    norm = np.linalg.norm(abs_gradient, ord="fro")
+    return norm
+

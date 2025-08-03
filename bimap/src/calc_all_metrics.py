@@ -2,9 +2,9 @@ import os
 import numpy as np
 import cv2
 import ants
+from pathlib import Path, PurePath
 
-from bimap.src.utils import save_and_display_video
-#from bimap.src.ants_test import template
+from utils import save_and_display_video
 from cotracker.utils.visualizer import Visualizer, read_video_from_path
 from cotracker.models.core.model_utils import get_points_on_a_grid
 import torch
@@ -16,7 +16,7 @@ from cotracker_utils import warping
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-filename = "Experiment-591czi"
+filename = "Experiment-746czi"
 
 
 def get_metrics_for_single_experiment(path):
@@ -34,23 +34,29 @@ def get_metrics_for_single_experiment(path):
     video = torch.from_numpy(np.expand_dims(video, axis=0)).float()
     video = torch.nn.functional.interpolate(video, size=(256,256),
                                             mode="bilinear", align_corners=False)[None]
-    video = video.permute(0,2,1,3,4).repeat(1,1,3,1,1).to(device)#[:,:10,:,:,:]
+    video = video.permute(0,2,1,3,4).repeat(1,1,3,1,1).to(device)#[:,:3,:,:,:]
     #template_idx = find_highest_correlation(frames)
     template_idx = 0
+    print("calculating ants metrics")
     ants_metrics = get_ants_metrics(frames, template_idx)
-    #lddmm_metrics = get_lddmm_metrics(frames, template_idx)
-    normcorre_metrics = get_normcorre_metrics(
-        f'../../data/output/normcorre/{filename}_normcorre.tif',
-                    frames[template_idx])
+    print("calculating lddmm metrics")
+    lddmm_metrics = get_lddmm_metrics(frames, template_idx)
+    print("calculating normcorre metrics")
+    #normcorre_metrics = get_normcorre_metrics(
+    #    f'../../data/output/normcorre/{filename}_normcorre.tif', frames,
+    #                frames[template_idx])
+    print("calculating cotracker metrics")
     cotracker_metrics = get_cotracker_metrics(video, frames, template_idx)
 
     print(f"ants: {ants_metrics}")
-    #print(f"lddmms: {lddmm_metrics}")
-    print(f"normcorre: {normcorre_metrics}")
+    print(f"lddmms: {lddmm_metrics}")
+    #print(f"normcorre: {normcorre_metrics}")
     print(f"cotracker: {cotracker_metrics}")
-
-
-
+    results = {"ants": ants_metrics,
+               "lddms": lddmm_metrics,
+               #"normcorre": normcorre_metrics,
+               "cotracker": cotracker_metrics}
+    return results
 
 
 def get_ants_metrics(frames, template_idx=0):
@@ -67,9 +73,9 @@ def get_ants_metrics(frames, template_idx=0):
     save_and_display_video(np.array(results),
                            f'../../data/output/ants/{filename}.mp4')
 
-    ssims: list[float] = evaluate(results, frames[template_idx])
+    ssims, mse, crispness = evaluate(results, frames, frames[template_idx])
 
-    return np.mean(ssims)
+    return np.mean(ssims), np.mean(mse), crispness
 
 
 def get_lddmm_metrics(frames, template_idx=0):
@@ -93,15 +99,15 @@ def get_lddmm_metrics(frames, template_idx=0):
 
         _ = lddmm.run()
         results.append(lddmm.outputDeformedTemplate()[0])
-    ssims: list[float] = evaluate(results, frames[template_idx])
-    return np.mean(ssims)
+    ssims, mse, crispness = evaluate(results, frames, frames[template_idx])
+    return np.mean(ssims), np.mean(mse), crispness
 
-def get_normcorre_metrics(results_path, template):
+def get_normcorre_metrics(results_path, images,template):
     # due to its install process issues, this function just imports precalculated
 # results
     results = read_video_from_path(results_path).squeeze()
-    ssims =  evaluate(results, template)
-    return np.mean(ssims)
+    ssims, mse, crispness =  evaluate(results, images, template)
+    return np.mean(ssims), np.mean(mse), crispness
 
 def get_cotracker_metrics(video, frames, template_idx=0, grid_size=15):
     model = torch.hub.load("facebookresearch/co-tracker",
@@ -118,11 +124,30 @@ def get_cotracker_metrics(video, frames, template_idx=0, grid_size=15):
                      np.expand_dims(frames, axis=-1))
     save_and_display_video(np.array(result), f'../../data/output/cotracker'
                                              f'/{filename}.mp4')
-    ssims: list[float] = evaluate(result, frames[0])
-    return np.mean(ssims)
+    ssims, mse, crispness = evaluate(result, frames, frames[0])
+    return np.mean(ssims), np.mean(mse), crispness
+
+def get_voxelmorph_metrics(results_path, images,template):
+    pass
+
+
+def get_all_results(path_list):
+    results = []
+    for path in path_list:
+        results.append(get_metrics_for_single_experiment(path))
+
+
+def get_all_paths(input_folder) -> list:
+    p = Path(input_folder)
+    paths = list(p.rglob("*.tif"))
+    file_paths = [p for p in paths if p.is_file()]
+    for path in file_paths:
+        print(path)
+    return file_paths
 
 
 
 if __name__ == '__main__':
-    get_metrics_for_single_experiment(
-        f"../../data/input/strong_movement/{filename}.tif")
+    #get_metrics_for_single_experiment(
+    #    f"../../data/input/low_movement/{filename}.tif")
+    get_all_paths(f"../../data/input")
