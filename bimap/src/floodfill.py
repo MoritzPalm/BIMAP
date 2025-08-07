@@ -1,8 +1,6 @@
 """functions to get ROIs from pixel-wise correlation across frames"""
 
-import ants
 import numpy as np
-from tqdm import tqdm
 
 
 def get_neighbor_coords(image: np.ndarray, x: int, y: int) -> list[tuple[int, int]]:
@@ -84,22 +82,3 @@ def build_rois(corrs: np.ndarray, threshold=0.5) -> list:
             rois.append(roi)
             visited.update(roi)
     return rois
-
-
-
-
-def ants_reg(frame_stack: list[np.ndarray], template_idx: int) -> list[np.ndarray]:
-    """Image Registration using the AnTsPy package."""
-    motion_corrected_images = []
-    fixed = ants.from_numpy(frame_stack[template_idx])
-
-    for i in tqdm(range(len(frame_stack))):
-        moving = ants.from_numpy(frame_stack[i])
-        areg = ants.registration(fixed, moving, "SyNOnly")
-        # TODO: experiment with different types of transform
-        motion_corrected_images.append(areg["warpedmovout"].numpy().astype(np.float32))
-
-    return motion_corrected_images
-
-
-

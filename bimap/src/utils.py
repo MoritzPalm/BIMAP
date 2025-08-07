@@ -8,9 +8,12 @@ import numpy as np
 from PIL import Image
 from scipy.ndimage import sobel
 from skimage.metrics import structural_similarity as ssim
+import torch
+from cotracker.utils.visualizer import Visualizer, read_video_from_path
 
 #pth = Path("../../data/low_movement/Experiment-746czi")
 pth =  Path("../../data/input/strong_movement/Experiment-591czi")
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 def load_example_experiment() -> list[np.ndarray]:
     """Load Experiment-746czi."""
@@ -52,7 +55,7 @@ def find_highest_correlation(frame_stack: list[np.ndarray], *, plot: bool=False)
     return max_idx
 
 
-def evaluate(corrected_images: list[np.ndarray], images, template: np.ndarray) -> tuple[list[float], list[float], float]:
+def evaluate(corrected_images: np.array, images, template: np.ndarray) -> dict:
     """Evaluate the image registration based on the SSIM of the gradient image."""
     ssim_list = [ssim(template, moving, data_range=template.max() - template.min()) for moving in corrected_images]
     mse_list = [quantized_mse(template, moving) for moving in corrected_images]
@@ -61,7 +64,8 @@ def evaluate(corrected_images: list[np.ndarray], images, template: np.ndarray) -
     crispness_before = crispness(summary_image_before)
     crispness_after = crispness(summary_image_after)
     crispness_improvement = crispness_after - crispness_before
-    return ssim_list, mse_list, crispness_improvement
+    results = {"ssims": ssim_list, "mse_list": mse_list, "crispness_improvement": crispness_improvement}
+    return results
 
 
 def float32_to_uint8(image: np.ndarray) -> np.ndarray:
@@ -166,4 +170,16 @@ def crispness(image):
     abs_gradient = np.abs(gradient)
     norm = np.linalg.norm(abs_gradient, ord="fro")
     return norm
+
+
+def load_video(path, len=-1):
+    filename = Path(path).stem
+    video = read_video_from_path(path).squeeze()
+    frames = np.array([frame for frame in video])
+    video = torch.from_numpy(np.expand_dims(video, axis=0)).float()
+    if len != -1:
+        frames = frames[:len]
+    video = torch.from_numpy(np.expand_dims(video, axis=0)).float()
+    video = video.permute(0, 2, 1, 3, 4).repeat(1, 1, 3, 1, 1).to(device)[:,:len,:,:,:]
+    return video, frames, filename
 
