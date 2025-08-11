@@ -7,13 +7,48 @@ from utils import load_video, save_and_display_video, find_highest_correlation, 
 
 def main():
     path = "../../data/input/strong_movement/b5czi.tif"
-    video, frames, filename = load_video(path)
+    video, frames, filename = load_video(path, len=10)
     #template_idx = find_highest_correlation(frames)
     template_idx = 0
-    result = run_ants(frames, template_idx, filename=filename)
+    result = _run(frames, template_idx, filename=filename)
 
 
-def run_ants(frame_stack: list[np.ndarray], template_idx: int, filename: str, ants_method: str = "SyNOnly"):
+def run(config: dict):
+    path = config["data"]["path"]
+    output_path = config["run"]["artifacts_dir"]
+    method = config["run"].get("method", None)
+    filtered = config.get("gaussian_filtered", False)
+    if method is None:
+        method = "SyNOnly"
+    video, frames, filename = load_video(path)
+    if config.get("template_strategy", None) == "computed":
+        template_index = find_highest_correlation(frames)
+    else:
+        template_index = 0
+    warped, metrics, runtime = _run(frames, template_index, output_path, filename, method)
+    ssim_list = metrics["ssims"]
+    mse_list = metrics["mse_list"]
+    crispness_improvement = metrics["crispness_improvement"]
+    metrics = {
+        "per_frame": {
+            "ssim": ssim_list,
+            "mse": mse_list
+        },
+        "summary": {
+            "mse_mean": float(np.mean(mse_list)),
+            "mse_std": float(np.std(mse_list)),
+            "crispness_improvement": crispness_improvement
+        }
+    }
+    result = {"runtime_s": runtime,
+              "metrics": metrics,
+              "artifacts": {
+                  "output_path": f"{output_path}/{filename}",
+              }}
+    return result
+
+
+def _run(frame_stack: list[np.ndarray], template_idx: int, out_path: str, filename: str, ants_method: str = "SyNOnly"):
     """Image Registration using the AnTsPy package."""
     motion_corrected_images = []
     fixed = ants.from_numpy(frame_stack[template_idx])
@@ -23,7 +58,7 @@ def run_ants(frame_stack: list[np.ndarray], template_idx: int, filename: str, an
         areg = ants.registration(fixed, moving, ants_method)
         motion_corrected_images.append(areg["warpedmovout"].numpy().astype(np.float32))
     end_time = time.time()
-    save_and_display_video(np.array(motion_corrected_images), f'../../data/output/ants/{filename}.mp4')
+    save_and_display_video(np.array(motion_corrected_images), f'{out_path}/{filename}.mp4')
     metrics = evaluate(motion_corrected_images, frame_stack, frame_stack[template_idx])
     return motion_corrected_images, metrics, end_time - start_time
 

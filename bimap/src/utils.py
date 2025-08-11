@@ -172,14 +172,25 @@ def crispness(image):
     return norm
 
 
-def load_video(path, len=-1):
+def load_video(path, len=-1, gaussian_filtered=False):
     filename = Path(path).stem
-    video = read_video_from_path(path).squeeze()
+    video = read_video_from_path(path)
+    if video is None:
+        raise FileNotFoundError(f"Video in {path} not found")
+    video = video.squeeze()
+    if gaussian_filtered:
+        pass
     frames = np.array([frame for frame in video])
-    video = torch.from_numpy(np.expand_dims(video, axis=0)).float()
+    video = torch.from_numpy(np.expand_dims(video.astype(np.float32), axis=0)).float()
     if len != -1:
         frames = frames[:len]
     video = torch.from_numpy(np.expand_dims(video, axis=0)).float()
     video = video.permute(0, 2, 1, 3, 4).repeat(1, 1, 3, 1, 1).to(device)[:,:len,:,:,:]
     return video, frames, filename
+
+def get_all_paths(input_folder) -> list:
+    p = Path(input_folder)
+    paths = list(p.rglob("*.tif"))
+    file_paths = [p for p in paths if p.is_file()]
+    return file_paths
 
