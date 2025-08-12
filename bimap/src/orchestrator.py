@@ -241,7 +241,6 @@ def normalize_result_structure(res: dict):
 
 # ---------- child process (sequential) ----------
 def _child_worker(module_name: str, cfg: dict, run_dir: str, ret_path: str):
-    start = time.time()
     run_dir_path = Path(run_dir)
     stdout_path = run_dir_path / "stdout.log"
     stderr_path = run_dir_path / "stderr.log"
@@ -252,10 +251,7 @@ def _child_worker(module_name: str, cfg: dict, run_dir: str, ret_path: str):
         mod = importlib.import_module(module_name)
         fn = getattr(mod, "run")
         result = fn(cfg)
-        duration = time.time() - start
-        if isinstance(result, dict) and "runtime_s" not in result:
-            result = {**result, "runtime_s": duration}
-        payload = {"ok": True, "duration_s": duration, "result": result}
+        payload = {"ok": True, "result": result}
     except Exception:
         payload = {"ok": False, "error": "exception", "traceback": traceback.format_exc()}
     finally:

@@ -57,13 +57,13 @@ def find_highest_correlation(frame_stack: list[np.ndarray], *, plot: bool=False)
 
 def evaluate(corrected_images: np.array, images, template: np.ndarray) -> dict:
     """Evaluate the image registration based on the SSIM of the gradient image."""
-    ssim_list = [ssim(template, moving, data_range=template.max() - template.min()) for moving in corrected_images]
-    mse_list = [quantized_mse(template, moving) for moving in corrected_images]
+    ssim_list = [float(ssim(template, moving, data_range=template.max() - template.min())) for moving in corrected_images]
+    mse_list = [float(quantized_mse(template, moving)) for moving in corrected_images]
     summary_image_before = np.mean(images, axis=0)
     summary_image_after = np.mean(corrected_images, axis=0)
     crispness_before = crispness(summary_image_before)
     crispness_after = crispness(summary_image_after)
-    crispness_improvement = crispness_after - crispness_before
+    crispness_improvement = float(crispness_after - crispness_before)
     results = {"ssims": ssim_list, "mse_list": mse_list, "crispness_improvement": crispness_improvement}
     return results
 
