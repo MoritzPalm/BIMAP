@@ -3,7 +3,9 @@ import time
 import numpy as np
 import ants
 
-from utils import load_video, save_and_display_video, find_highest_correlation, evaluate
+from utils import load_video, save_and_display_video, find_highest_correlation, \
+    evaluate, denoise_stack,  denoise_video
+
 
 def main():
     path = "../../data/input/strong_movement/b5czi.tif"
@@ -17,10 +19,12 @@ def run(config: dict):
     path = config["data"]["path"]
     output_path = config["run"]["artifacts_dir"]
     method = config["run"].get("method", None)
-    filtered = config.get("gaussian_filtered", False)
     if method is None:
         method = "SyNOnly"
-    video, frames, filename = load_video(path)
+
+    filtered = config.get("gaussian_filtered", False)
+    video, frames, filename = load_video(path, gaussian_filtered=filtered)
+
     if config.get("template_strategy", None) == "computed":
         template_index = find_highest_correlation(frames)
     else:
@@ -43,7 +47,7 @@ def run(config: dict):
     result = {"runtime_s": runtime,
               "metrics": metrics,
               "artifacts": {
-                  "output_path": f"{output_path}/{filename}",
+                  "output_path": f"{output_path}/{filename}.mp4",
               }}
     return result
 

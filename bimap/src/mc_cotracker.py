@@ -50,7 +50,7 @@ def run(config:dict) -> dict:
     result = {"runtime_s": runtime,
               "metrics": metrics,
               "artifacts": {
-                  "output_path": f"{output_path}/{filename}",
+                  "output_path": f"{output_path}/{filename}.mp4",
               }}
     return result
 

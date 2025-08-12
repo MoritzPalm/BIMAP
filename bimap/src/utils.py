@@ -6,7 +6,7 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
-from scipy.ndimage import sobel
+from scipy.ndimage import sobel, gaussian_filter
 from skimage.metrics import structural_similarity as ssim
 import torch
 from cotracker.utils.visualizer import Visualizer, read_video_from_path
@@ -89,10 +89,18 @@ def save_results(corrected_images: list[np.ndarray], path: Path, method: str) ->
         filename = save_path / f"corrected_{i}.tif"
         image.save(filename)
 
+def denoise_video(video: torch.Tensor, sigma=1) -> torch.Tensor:
+    filtered = np.empty_like(video)
+    for t in range(video.shape[0]):
+        filtered[t] = gaussian_filter(video[t], sigma=sigma)
+    return filtered
 
-def denoise_stack(imgs: list[np.ndarray]) -> list[np.ndarray]:
-    imgs8 = [float32_to_uint8(img) for img in imgs]
-    return [cv2.bilateralFilter(img8, d=10, sigmaColor=20, sigmaSpace=50) for img8 in imgs8]
+
+def denoise_stack(imgs: list[np.ndarray], sigma=1) -> list[np.ndarray]:
+    for i in range(len(imgs)):
+         imgs[i] = gaussian_filter(imgs[i], sigma=sigma)
+    return imgs
+
 
 def save_and_display_video(array, filename='output.mp4', fps=30):
     num_frames, height, width = array.shape
@@ -179,8 +187,11 @@ def load_video(path, len=-1, gaussian_filtered=False):
         raise FileNotFoundError(f"Video in {path} not found")
     video = video.squeeze()
     if gaussian_filtered:
-        pass
-    frames = np.array([frame for frame in video])
+        filtered = np.empty_like(video)
+        for t in range(video.shape[0]):
+            filtered[t] = gaussian_filter(video[t], sigma=2)
+        video = filtered
+    frames = np.array([frame for frame in video], dtype=np.float32)
     video = torch.from_numpy(np.expand_dims(video.astype(np.float32), axis=0)).float()
     if len != -1:
         frames = frames[:len]

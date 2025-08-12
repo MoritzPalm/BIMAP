@@ -5,6 +5,9 @@ datasets:
       category: low
 
 groups:
+  lddmms:
+    module: bimap.src.mc_lddmms
+    experiments: []
   ants:
     module: bimap.src.mc_ants
     experiments:
@@ -23,9 +26,7 @@ groups:
       - name: grid_size_sweep
         params:
           grid_size: [5, 10, 15, 20, 50, 100]
-  lddmms:
-    module: bimap.src.mc_lddmms
-    experiments: []
+
   normcorre:
     module: bimap.src.mc_normcorre
     experiments: []
@@ -35,7 +36,7 @@ groups:
 
 global_experiments:
   - name: template_index
-    apply_to: ["cotracker", "ants", "voxelmorph"]
+    apply_to: ["cotracker", "ants", "lddmms", "voxelmorph"]
     params:
       template_strategy: ["first_frame", "computed"]
   - name: gaussian_filtering
