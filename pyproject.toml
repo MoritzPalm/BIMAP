@@ -54,6 +54,9 @@ ignore = ["D203", "D213"]
 [tool.ruff.lint.per-file-ignores]
 "*.ipynb" = ["T201"]
 
+[tool.uv]
+cache-dir = "./.uv_cache"
+
 [[tool.uv.index]]
 name = "pytorch-cu124"
 url = "https://download.pytorch.org/whl/cu124"
