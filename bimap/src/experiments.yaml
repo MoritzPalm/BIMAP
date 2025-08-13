@@ -5,13 +5,6 @@ datasets:
       category: low
 
 groups:
-
-  ants:
-    module: bimap.src.mc_ants
-    experiments:
-      - name: method_sweep
-        params:
-          method: ["Elastic", "ElasticSyN", "SyN", "SyNRA", "SyNOnly", "SyNAggro"]
   cotracker:
     module: bimap.src.mc_cotracker
     experiments:
@@ -26,8 +19,13 @@ groups:
           grid_size: [5, 10, 15, 20, 50, 100]
   lddmms:
     module: bimap.src.mc_lddmms
-    experiments: [ ]
-
+    experiments: []
+  ants:
+    module: bimap.src.mc_ants
+    experiments:
+      - name: method_sweep
+        params:
+          method: [ "Elastic", "ElasticSyN", "SyN", "SyNRA", "SyNOnly", "SyNAggro" ]
   normcorre:
     module: bimap.src.mc_normcorre
     experiments: []
