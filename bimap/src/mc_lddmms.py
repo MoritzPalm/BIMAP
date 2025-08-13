@@ -75,7 +75,7 @@ def _run(frames, template_idx, output_path, filename, save: bool, **kwargs):
                                   do_affine=0,
                                   do_lddmm=1,
                                   **kwargs,
-                                  optimizer='sgd',
+                                  optimizer='gdr',
                                   dx=[1.0,1.0],
                                   gpu_number=0,
                                   verbose=False)
