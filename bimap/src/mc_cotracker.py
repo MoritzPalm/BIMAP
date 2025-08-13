@@ -10,7 +10,7 @@ from cotracker.models.core.model_utils import get_points_on_a_grid
 
 from utils import load_video, save_and_display_video, evaluate, find_highest_correlation
 
-os.environ["TORCH_HOME"] = "/data/va11moje/cache/cotracker"
+os.environ["TORCH_HOME"] = "/data/ih26ykel/cache/cotracker"
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
