@@ -285,7 +285,7 @@ def main():
     ap.add_argument("--out", default="runs")
     ap.add_argument("--timeout-s", type=int, default=0)
     ap.add_argument("--retries", type=int, default=0)
-    ap.add_argument("--module-map", default="", help="ants=reg.ants,cotracker=reg.cotracker,...")
+    ap.add_argument("--module-map", default="", help="ants=ants,cotracker=cotracker,...")
     ap.add_argument("--data-glob", default="", help="Override videos via glob, e.g. '/data/*.mp4'")
     ap.add_argument("--data-manifest", default="", help="CSV with columns path[,id] to override videos")
     args = ap.parse_args()

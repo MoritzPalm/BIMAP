@@ -1,6 +1,7 @@
 import math
 import time
 import os
+import gc
 
 import numpy as np
 import torch
@@ -78,6 +79,8 @@ def _run(video, frames, filename, output_path, template_idx=0,
                      np.expand_dims(frames, axis=-1), diff_warp, visibility)
     end_time = time.time()
     save_and_display_video(np.array(result), f'{output_path}/{filename}.mp4')
+    torch.cuda.empty_cache()
+    gc.collect()
     metrics = evaluate(result, frames, frames[template_idx])
     return result, metrics, end_time - start_time
 
