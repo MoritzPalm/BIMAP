@@ -101,7 +101,6 @@ def select_videos(all_videos: list[dict], selector) -> list[dict]:
 
     if isinstance(selector, dict):
         ids = set(map(str, selector.get("ids", [])))
-        cats = set(map(str, selector.get("categories, categories".split(",")[0], [])))  # safeguard if typo
         cats = set(map(str, selector.get("categories", []))) if "categories" in selector else cats
 
         chosen = all_videos
