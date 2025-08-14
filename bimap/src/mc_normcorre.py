@@ -1,7 +1,10 @@
 import subprocess
 from pathlib import Path
+import os
 
 import numpy as np
+
+from utils import load_video, evaluate, find_highest_correlation
 
 def run_in_caiman(env_name, work_dir, script_path, *args):
     activate_bat = r"C:\Users\morit\Miniforge3\Scripts\activate.bat"
@@ -20,15 +23,29 @@ def run_in_caiman(env_name, work_dir, script_path, *args):
     )
     if result.returncode != 0:
         raise RuntimeError(f"Error:\n{result.stderr}")
-    return result.stdout
+
+    runtime = None
+    for line in result.stdout.splitlines():
+        if line.startswith("TIME_TAKEN="):
+            runtime = float(line.split("=")[1])
+            break
+    return result.stdout, runtime
 
 def run(config:dict) -> dict:
     path = config["data"]["path"]
-    filename = Path(path).stem
+    abs_path = os.path.abspath(path)
+    video, frames, filename = load_video(path)
     output_path = config["run"]["artifacts_dir"]
+    abs_output_path = os.path.abspath(output_path)
     filtered = config.get("gaussian_filtered", False)
     template_index = config.get("template_strategy", None)
-    warped, metrics, runtime = run_in_caiman()
+    if config.get("template_strategy", None) == "computed":
+        template_index = find_highest_correlation(frames)
+    else:
+        template_index = 0
+    stdout, runtime = run_in_caiman("caiman", r"C:\Users\morit\caiman_data\demos\notebooks", "mc_normcorre.py", abs_path, abs_output_path)
+    warped, _, _ = load_video(f"{output_path}/{filename}.tif")
+    metrics = evaluate(warped.cpu().numpy().squeeze()[:,0,:,:], frames, frames[template_index])
     ssim_list = metrics["ssims"]
     mse_list = metrics["mse_list"]
     crispness_improvement = metrics["crispness_improvement"]
@@ -53,5 +70,5 @@ def run(config:dict) -> dict:
 
 if __name__ == '__main__':
     out = run_in_caiman("caiman", r"C:\Users\morit\caiman_data\demos\notebooks",
-                        "mc_normcorre.py", "C:/Users/morit/Documents/Studium/BIMAP/data/input/strong_movement/b5czi.tif")
+                        "mc_normcorre.py", "C:/Users/morit/Documents/Studium/BIMAP/data/input/strong_movement/b5czi.tif", "C:/Users/morit/Documents/Studium/BIMAP/data/output/normcorre")
     print(out)
