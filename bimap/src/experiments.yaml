@@ -3,6 +3,45 @@ datasets:
     - id: v1
       path: ../../data/input/low_movement/1czi.tif
       category: low
+    - id: v2
+      path: ../../data/input/low_movement/Aczi.tif
+      category: low
+    - id: v3
+      path: ../../data/input/low_movement/b3_15czi.tif
+      category: low
+    - id: v4
+      path: ../../data/input/low_movement/b6czi.tif
+      category: low
+    - id: v5
+      path: ../../data/input/low_movement/b9czi.tif
+      category: low
+    - id: v6
+      path: ../../data/input/low_movement/Experiment-746czi.tif
+      category: low
+    - id: v7
+      path: ../../data/input/strong_movement/3czi.tif
+      category: strong
+    - id: v8
+      path: ../../data/input/strong_movement/b1other_angelczi.tif
+      category: strong
+    - id: v9
+      path: ../../data/input/strong_movement/b4czi.tif
+      category: strong
+    - id: v10
+      path: ../../data/input/strong_movement/b5czi.tif
+      category: strong
+    - id: v11
+      path: ../../data/input/strong_movement/b7_2nd_stackczi.tif
+      category: strong
+    - id: v12
+      path: ../../data/input/strong_movement/b8czi.tif
+      category: strong
+    - id: v13
+      path: ../../data/input/strong_movement/Eperiment-583czi.tif
+      category: strong
+    - id: v14
+      path: ../../data/input/strong_movement/Experiment-591czi.tif
+      category: strong
 
 groups:
   cotracker:
