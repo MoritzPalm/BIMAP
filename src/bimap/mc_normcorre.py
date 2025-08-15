@@ -95,7 +95,7 @@ def run(config:dict) -> dict:
         template_index = find_highest_correlation(frames)
     else:
         template_index = 0
-    stdout, runtime = run_in_caiman("caiman", r"/data/ih26ykel/caiman_data/demos/notebooks", "mc_normcorre.py", abs_path, abs_output_path)
+    stdout, runtime = run_in_caiman("caiman", r"/data/ih26ykel/caiman_data/demos/notebooks", "mc_normcorre_callee.py", abs_path, abs_output_path)
     warped, _, _ = load_video(f"{output_path}/{filename}.tif")
     metrics = evaluate(warped.cpu().numpy().squeeze()[:,0,:,:], frames, frames[template_index])
     ssim_list = metrics["ssims"]
@@ -122,5 +122,5 @@ def run(config:dict) -> dict:
 
 if __name__ == '__main__':
     out = run_in_caiman("caiman", r"/data/ih26ykel/caiman_data/demos/notebooks",
-                        "mc_normcorre.py", "/data/ih26ykel/BIMAP/data/input/strong_movement/b5czi.tif", "/data/ih26ykel/BIMAP/data/output/normcorre")
+                        "mc_normcorre_callee.py", "/data/ih26ykel/BIMAP/data/input/strong_movement/b5czi.tif", "/data/ih26ykel/BIMAP/data/output/normcorre")
     print(out)
