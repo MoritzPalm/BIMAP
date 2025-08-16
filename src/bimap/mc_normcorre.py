@@ -55,6 +55,7 @@ def run_in_caiman(env_name, work_dir, script_path, *args):
     conda_sh = _find_conda_sh()
     q = shlex.quote
     quoted_args = " ".join(q(str(a)) for a in args)
+    os.environ["CAIMAN_TEMP"] = "/data/ih26ykel/caiman_data/temp"
 
     cmd = (
         f'set -e\n'
