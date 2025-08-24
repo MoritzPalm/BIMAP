@@ -26,9 +26,9 @@ def run(config:dict) -> dict:
     path = config["data"]["path"]
     output_path = config["run"]["artifacts_dir"]
     filtered = config.get("gaussian_filtered", False)
-    visibility = config["run"].get("visibility", False)
-    diff_warp = config["run"].get("diff_warp", False)
-    grid_size = config["run"].get("grid_size", 15)
+    visibility = config.get("visibility", False)
+    diff_warp = config.get("diff_warp", False)
+    grid_size = config.get("grid_size", 15)
     video, frames, filename = load_video(path, len = 400, gaussian_filtered=filtered)
     if config.get("template_strategy", None) == "computed":
         template_index = find_highest_correlation(frames)
