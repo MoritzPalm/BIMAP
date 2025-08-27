@@ -1,6 +1,30 @@
 """functions to get ROIs from pixel-wise correlation across frames"""
 
 import numpy as np
+import matplotlib.pyplot as plt
+
+from cotracker.utils.visualizer import read_video_from_path
+
+example_path = "../../data/output/ants/method_sweep/strong/v7/run_418fb3ec/artifacts/3czi.mp4"
+
+def main():
+    video = read_video_from_path(example_path).squeeze()
+    frames = np.array([frame for frame in video], dtype=np.float32)
+    corrs = calculate_all_corrs(video)
+    rois = build_rois(corrs, 0.95)
+    roi_brightness = calculate_roi_brightness_over_time(frames, rois)
+    plt.figure(figsize=(10, 6))
+
+    for roi, brightness_curve in roi_brightness.items():
+        plt.plot(brightness_curve, label=f'ROI {roi}')
+
+    plt.xlabel("Time")
+    plt.ylabel("Average Brightness")
+    plt.title("ROI Brightness Over Time")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
 
 
 def get_neighbor_coords(image: np.ndarray, x: int, y: int) -> list[tuple[int, int]]:
@@ -44,20 +68,21 @@ def calculate_all_corrs(image_stack: np.ndarray) -> np.ndarray:
     return corrs
 
 
-def build_roi_recursive(corrs: np.ndarray, center: tuple, threshold=0.5,
-                        visited: set = None) ->set:
-    """Recursive building of a single ROI"""
-    if visited is None:
-        visited = set()
-    if center in visited or corrs[center] < threshold:
+def build_roi_recursive(corrs: np.ndarray, center: tuple, threshold: float,
+                        labels: np.ndarray, label_id: int) -> set:
+    y, x = center
+    if labels[y, x] != -1 or corrs[y, x] < threshold:
         return set()
 
-    visited.add(center)
     roi = {center}
-    neighbors = get_neighbor_coords(corrs, center[1], center[0])
-    for x, y in neighbors:
-        if corrs[y, x] > threshold:
-            roi.update(build_roi_recursive(corrs, (y, x), threshold, visited))
+    labels[y, x] = label_id  # Temporarily mark, to prevent revisits
+
+    neighbors = get_neighbor_coords(corrs, x, y)
+    for nx, ny in neighbors:
+        if labels[ny, nx] == -1 and corrs[ny, nx] >= threshold:
+            roi.update(build_roi_recursive(corrs, (ny, nx), threshold, labels, label_id))
+        elif labels[ny, nx] == -1:
+            labels[ny, nx] = 0  # Visited but not part of ROI
     return roi
 
 
@@ -71,14 +96,48 @@ def build_roi(corrs, threshold, visited):
     roi.update(build_roi_recursive(corrs, center, threshold, visited))
     return roi
 
+def build_rois(corrs: np.ndarray, threshold=0.5) -> np.array:
+    labels = np.full_like(corrs, fill_value=-1, dtype=int)
+    label_id = 1
+    H, W = corrs.shape
+    for y in range(H):
+        for x in range(W):
+            if labels[y, x] == -1 and corrs[y, x] >= threshold:
+                roi = build_roi_recursive(corrs, (y, x), threshold, labels, label_id)
+                if roi:
+                    for ry, rx in roi:
+                        labels[ry, rx] = label_id
+                    label_id += 1
+                else:
+                    labels[y, x] = 0  # Mark as visited but not part of ROI
+            elif labels[y, x] == -1:
+                labels[y, x] = 0
+    return labels
 
-def build_rois(corrs: np.ndarray, threshold=0.5) -> list:
-    corrs_cpy = corrs.copy()
-    rois = []
-    visited = set()
-    for i in range(30000):  # building three rois
-        roi = build_roi(corrs_cpy, threshold, visited)
-        if roi:
-            rois.append(roi)
-            visited.update(roi)
-    return rois
+
+def calculate_roi_brightness_over_time(image_stack: np.ndarray, labels: np.ndarray) -> dict[int, np.ndarray]:
+    """
+    :param image_stack: (T, H, W) array of images over time
+    :param labels: (H, W) array with ROI labels (1, 2, ...) and 0/-1 for non-ROI
+    :return: Dictionary mapping ROI label -> (T,) array of average brightness over time
+    """
+    roi_brightness = {}
+    T = image_stack.shape[0]
+    unique_labels = np.unique(labels)
+
+    for label in unique_labels:
+        if label <= 0:
+            continue  # Skip background and visited non-ROI pixels
+
+        # Find pixel indices belonging to the ROI
+        roi_mask = labels == label
+        roi_pixels = image_stack[:, roi_mask]  # Shape: (T, N_pixels)
+
+        # Compute average over pixels for each timepoint
+        roi_mean = roi_pixels.mean(axis=1)  # Shape: (T,)
+        roi_brightness[label] = roi_mean
+
+    return roi_brightness
+
+if __name__ == "__main__":
+    main()
