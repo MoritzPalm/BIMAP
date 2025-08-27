@@ -18,7 +18,7 @@ def main():
 def run(config: dict):
     path = config["data"]["path"]
     output_path = config["run"]["artifacts_dir"]
-    method = config["run"].get("method", None)
+    method = config.get("method", None)
     if method is None:
         method = "SyNOnly"
 
