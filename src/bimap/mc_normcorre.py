@@ -97,7 +97,7 @@ def run(config:dict) -> dict:
     else:
         template_index = 0
     stdout, runtime = run_in_caiman("caiman", r"/data/ih26ykel/caiman_data/demos/notebooks", "mc_normcorre_callee.py", abs_path, abs_output_path)
-    warped, _, _ = load_video(f"{output_path}/{filename}.tif")
+    warped, _, _ = load_video(f"{output_path}/{filename}.tif", gaussian_filtered=filtered)
     metrics = evaluate(warped.cpu().numpy().squeeze()[:,0,:,:], frames, frames[template_index])
     ssim_list = metrics["ssims"]
     mse_list = metrics["mse_list"]
