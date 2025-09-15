@@ -1,16 +1,24 @@
-import subprocess
-from pathlib import Path
+"""Run CaImAn's Normcorre motion correction algorithm via a subprocess call."""
+
+import logging
 import os
 import shlex
+import subprocess
+from pathlib import Path
 
 import numpy as np
+from utils import evaluate, find_highest_correlation, load_video
 
-from utils import load_video, evaluate, find_highest_correlation
+logger = logging.getLogger(__name__)
+
+# WARNING: this way of using normcorre is littered with security issues, use at your own risk!
 
 
-def _find_conda_sh():
-    """
-    Return the path to conda's activation script: <base>/etc/profile.d/conda.sh
+def _find_conda_sh() -> str:
+    """Find the conda.sh script to enable conda environments in bash.
+
+    :return: the path to conda's activation script: <base>/etc/profile.d/conda.sh
+
     Tries env vars, `conda info --base`, then common install paths.
     """
     # 1) From CONDA_EXE (e.g., /home/you/miniforge3/condabin/conda)
@@ -23,16 +31,20 @@ def _find_conda_sh():
 
     # 2) Ask conda directly (works if 'conda' is on PATH)
     try:
+        # this is potentially a security issue if conda is not trusted as arbitrary code
+        # could be executed if the PATh variable is manipulated
         out = subprocess.run(
-            ["conda", "info", "--base"],
-            capture_output=True, text=True, check=True
+            ["conda", "info", "--base"], #noqa: S607
+            capture_output=True, text=True, check=True,
         )
         base = Path(out.stdout.strip())
         candidate = base / "etc" / "profile.d" / "conda.sh"
         if candidate.exists():
             return str(candidate)
-    except Exception:
-        pass
+    except FileNotFoundError as e:
+        logger.debug("conda not found on PATH: %s", e)
+    except subprocess.CalledProcessError as e:
+        logger.debug("conda command failed: %s", e)
 
     # 3) Common locations
     for base in [
@@ -46,28 +58,42 @@ def _find_conda_sh():
         if candidate.exists():
             return str(candidate)
 
-    raise FileNotFoundError(
-        "Could not locate conda.sh. Try running `conda info --base` in a terminal "
-        "to find your Miniforge/Mambaforge base, then use <base>/etc/profile.d/conda.sh."
+    msg = (
+        "Could not locate conda.sh. "
+        "Try running `conda info --base` in a terminal to find your "
+        "Miniforge/Mambaforge base, then use <base>/etc/profile.d/conda.sh."
     )
+    raise FileNotFoundError(msg)
 
-def run_in_caiman(env_name, work_dir, script_path, *args):
+
+def run_in_caiman(env_name: str, work_dir: str, script_path: str, *args: str) \
+        -> tuple[str, float|None]:
+    """Run a script in a conda environment via a subprocess call.
+
+    :param env_name: name of the conda environment to activate
+    :param work_dir: working directory to change to before running the script
+    :param script_path: path to the python script to run
+    :param args: arguments to pass to the script
+    :return: tuple of (stdout, runtime) where stdout is the captured standard output
+             containing the resulting metrics
+             and runtime is the time taken as reported by the script (or None if not found)
+    """
     conda_sh = _find_conda_sh()
     q = shlex.quote
     quoted_args = " ".join(q(str(a)) for a in args)
     os.environ["CAIMAN_TEMP"] = "/data/ih26ykel/caiman_data/temp"
 
     cmd = (
-        f'set -e\n'
-        f'source {q(conda_sh)}\n'
-        f'conda activate {q(env_name)}\n'
-        f'cd {q(work_dir)}\n'
-        f'python {q(script_path)} {quoted_args}\n'
+        f"set -e\n"
+        f"source {q(conda_sh)}\n"
+        f"conda activate {q(env_name)}\n"
+        f"cd {q(work_dir)}\n"
+        f"python {q(script_path)} {quoted_args}\n"
     )
 
-    result = subprocess.run(
+    result = subprocess.run(    # noqa: S602
         cmd,
-        shell=True,
+        check=False, shell=True,
         executable="/bin/bash",
         capture_output=True,
         text=True,
@@ -75,7 +101,9 @@ def run_in_caiman(env_name, work_dir, script_path, *args):
         errors="replace",
     )
     if result.returncode != 0:
-        raise RuntimeError(f"Error:\n{result.stderr}")
+        stderr = result.stderr.strip()
+        msg = f"Subprocess failed with exit code {result.returncode}\nSTDERR:\n{stderr}"
+        raise RuntimeError(msg)
 
     runtime = None
     for line in result.stdout.splitlines():
@@ -84,19 +112,32 @@ def run_in_caiman(env_name, work_dir, script_path, *args):
             break
     return result.stdout, runtime
 
+
 def run(config:dict) -> dict:
+    """Run CaImAn's Normcorre motion correction on a video input.
+
+    :param config: configuration dictionary with the following fields:
+                    data: path: path to the input video
+                    run:
+                          artifacts_dir: directory to save output artifacts
+                    template_strategy: (optional) strategy to select the template frame,
+                                        either "first" or "computed", default is "first"
+                    gaussian_filtered: (optional) whether to apply Gaussian filtering
+    :return: dictionary with results and metrics
+    """
     path = config["data"]["path"]
-    abs_path = os.path.abspath(path)
+    abs_path = Path.resolve(path)
     video, frames, filename = load_video(path)
     output_path = config["run"]["artifacts_dir"]
-    abs_output_path = os.path.abspath(output_path)
+    abs_output_path = Path.resolve(output_path)
     filtered = config.get("gaussian_filtered", False)
-    template_index = config.get("template_strategy", None)
-    if config.get("template_strategy", None) == "computed":
-        template_index = find_highest_correlation(frames)
-    else:
-        template_index = 0
-    stdout, runtime = run_in_caiman("caiman", r"/data/ih26ykel/caiman_data/demos/notebooks", "mc_normcorre_callee.py", abs_path, abs_output_path)
+    template_index = config.get("template_strategy")
+    template_index = find_highest_correlation(frames) if config.get("template_strategy") == "computed" else 0
+    stdout, runtime = run_in_caiman("caiman",
+                                    r"/data/ih26ykel/caiman_data/demos/notebooks",
+                                    "mc_normcorre_callee.py",
+                                    abs_path,
+                                    abs_output_path)
     warped, _, _ = load_video(f"{output_path}/{filename}.tif", gaussian_filtered=filtered)
     metrics = evaluate(warped.cpu().numpy().squeeze()[:,0,:,:], frames, frames[template_index])
     ssim_list = metrics["ssims"]
@@ -105,23 +146,25 @@ def run(config:dict) -> dict:
     metrics = {
         "per_frame": {
             "ssim": ssim_list,
-            "mse": mse_list
+            "mse": mse_list,
         },
         "summary": {
             "mse_mean": float(np.mean(mse_list)),
             "mse_std": float(np.std(mse_list)),
-            "crispness_improvement": crispness_improvement
-        }
+            "crispness_improvement": crispness_improvement,
+        },
     }
-    result = {"runtime_s": runtime,
+    return {"runtime_s": runtime,
               "metrics": metrics,
               "artifacts": {
                   "output_path": f"{output_path}/{filename}.mp4",
               }}
-    return result
 
 
-if __name__ == '__main__':
-    out = run_in_caiman("caiman", r"/data/ih26ykel/caiman_data/demos/notebooks",
-                        "mc_normcorre_callee.py", "/data/ih26ykel/BIMAP/data/input/strong_movement/b5czi.tif", "/data/ih26ykel/BIMAP/data/output/normcorre")
-    print(out)
+if __name__ == "__main__":
+    out = run_in_caiman("caiman",
+                        r"/data/ih26ykel/caiman_data/demos/notebooks",
+                        "mc_normcorre_callee.py",
+                        "/data/ih26ykel/BIMAP/data/input/strong_movement/b5czi.tif",
+                        "/data/ih26ykel/BIMAP/data/output/normcorre")
+    logger.debug(out)
