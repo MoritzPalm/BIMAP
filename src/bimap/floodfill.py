@@ -1,8 +1,7 @@
 """functions to get ROIs from pixel-wise correlation across frames"""
 
-import numpy as np
 import matplotlib.pyplot as plt
-
+import numpy as np
 from cotracker.utils.visualizer import read_video_from_path
 
 example_path = "../../data/output/ants/method_sweep/strong/v7/run_418fb3ec/artifacts/3czi.mp4"
@@ -16,7 +15,7 @@ def main():
     plt.figure(figsize=(10, 6))
 
     for roi, brightness_curve in roi_brightness.items():
-        plt.plot(brightness_curve, label=f'ROI {roi}')
+        plt.plot(brightness_curve, label=f"ROI {roi}")
 
     plt.xlabel("Time")
     plt.ylabel("Average Brightness")
@@ -116,8 +115,7 @@ def build_rois(corrs: np.ndarray, threshold=0.5) -> np.array:
 
 
 def calculate_roi_brightness_over_time(image_stack: np.ndarray, labels: np.ndarray) -> dict[int, np.ndarray]:
-    """
-    :param image_stack: (T, H, W) array of images over time
+    """:param image_stack: (T, H, W) array of images over time
     :param labels: (H, W) array with ROI labels (1, 2, ...) and 0/-1 for non-ROI
     :return: Dictionary mapping ROI label -> (T,) array of average brightness over time
     """

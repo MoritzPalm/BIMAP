@@ -5,11 +5,11 @@ from pathlib import Path
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
-from PIL import Image
-from scipy.ndimage import sobel, gaussian_filter
-from skimage.metrics import structural_similarity as ssim
 import torch
-from cotracker.utils.visualizer import Visualizer, read_video_from_path
+from cotracker.utils.visualizer import read_video_from_path
+from PIL import Image
+from scipy.ndimage import gaussian_filter, sobel
+from skimage.metrics import structural_similarity as ssim
 
 #pth = Path("../../data/low_movement/Experiment-746czi")
 pth =  Path("../../data/input/strong_movement/Experiment-591czi")
@@ -113,7 +113,7 @@ def denoise_stack(imgs: list[np.ndarray], sigma=1) -> list[np.ndarray]:
     return imgs
 
 
-def save_and_display_video(array, filename='output.mp4', fps=30):
+def save_and_display_video(array, filename="output.mp4", fps=30):
     num_frames, height, width = array.shape
 
     # Normalize and convert to uint8 if needed
@@ -124,7 +124,7 @@ def save_and_display_video(array, filename='output.mp4', fps=30):
         array = np.clip(array, 0, 255).astype(np.uint8)
 
     # VideoWriter setup
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     out = cv2.VideoWriter(filename, fourcc, fps, (width, height), isColor=True)
 
     for i in range(num_frames):
@@ -135,9 +135,8 @@ def save_and_display_video(array, filename='output.mp4', fps=30):
     out.release()
     print(f"Video saved to {filename}")
 
-def quantize_image(image, method='percentile', thresholds=None):
-    """
-    Quantize a calcium imaging frame into 3 levels:
+def quantize_image(image, method="percentile", thresholds=None):
+    """Quantize a calcium imaging frame into 3 levels:
     0 - background, 1 - base, 2 - high activity
 
     params:
@@ -147,11 +146,12 @@ def quantize_image(image, method='percentile', thresholds=None):
 
     Returns:
         np.ndarray: quantized image with values 0, 1, 2
+
     """
-    if method == 'percentile':
+    if method == "percentile":
         low_thresh = np.percentile(image, 10)
         high_thresh = np.percentile(image, 90)
-    elif method == 'manual' and thresholds:
+    elif method == "manual" and thresholds:
         low_thresh, high_thresh = thresholds
     else:
         raise ValueError("Invalid method or missing thresholds")
@@ -162,9 +162,8 @@ def quantize_image(image, method='percentile', thresholds=None):
 
     return quantized
 
-def quantized_mse(image1, image2, method='percentile', thresholds=None):
-    """
-    Compute MSE between two quantized calcium imaging frames.
+def quantized_mse(image1, image2, method="percentile", thresholds=None):
+    """Compute MSE between two quantized calcium imaging frames.
 
     params:
         image1 (np.ndarray): reference frame
@@ -174,6 +173,7 @@ def quantized_mse(image1, image2, method='percentile', thresholds=None):
 
     Returns:
         float: mean squared error between quantized images
+
     """
     q1 = quantize_image(image1, method=method, thresholds=thresholds)
     q2 = quantize_image(image2, method=method, thresholds=thresholds)
@@ -182,8 +182,7 @@ def quantized_mse(image1, image2, method='percentile', thresholds=None):
 
 
 def crispness(image):
-    """
-    calculates the crispness value, intended to be used on a summary image before and after registration.
+    """Calculates the crispness value, intended to be used on a summary image before and after registration.
     """
     gradient = get_magnitude(image)
     abs_gradient = np.abs(gradient)

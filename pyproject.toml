@@ -51,8 +51,7 @@ include = ["src/**"]
 line-length = 120
 target-version = "py313"
 #excluding imported code
-extend-exclude = ["torch_lddmm.py"]
-exclude = ["voxelmorph"]
+extend-exclude = ["torch_lddmm.py", "co-tracker", "CaImAn", "src/notebooks"]
 
 [tool.ruff.lint]
 select = ["ALL"]

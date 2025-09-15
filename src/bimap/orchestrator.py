@@ -1,21 +1,31 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, importlib, itertools, json, os, socket, sys, time, traceback, uuid
-from copy import deepcopy
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Dict, List
+
+import argparse
+import importlib
+import itertools
+import json
 import multiprocessing as mp
+import os
+import socket
+import sys
+import traceback
+import uuid
+from copy import deepcopy
+from datetime import UTC, datetime
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
+
 # ---------- utils ----------
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 def load_yaml(path: str):
     import yaml  # pip install pyyaml
-    with open(path, "r") as f:
+    with open(path) as f:
         return yaml.safe_load(f)
 
 def cartesian(params: dict):
@@ -25,7 +35,7 @@ def cartesian(params: dict):
     keys = list(params.keys())
     vals = [(v if isinstance(v, list) else [v]) for v in (params[k] for k in keys)]
     for combo in itertools.product(*vals):
-        yield dict(zip(keys, combo))
+        yield dict(zip(keys, combo, strict=False))
 
 def parse_module_map(s: str) -> dict:
     mapping = {}
@@ -56,13 +66,13 @@ def load_datasets_from_yaml(data: dict) -> list[dict]:
         out.append({
             "id": str(vid_id),
             "path": str(v["path"]),
-            "category": str(v.get("category", "") or "")  # "" if unknown
+            "category": str(v.get("category", "") or ""),  # "" if unknown
         })
     if not out:
         raise ValueError("No videos found.")
     return out
 
-def glob_videos(pattern: str) -> List[dict]:
+def glob_videos(pattern: str) -> list[dict]:
     paths = sorted(Path(p).resolve() for p in map(str, Path().glob(pattern)) )
     # The above won't work for wildcards from CLI; do manual glob:
     import glob as _glob
@@ -131,11 +141,11 @@ def normalize_groups(data: dict) -> dict:
         groups[gname] = {
             "module": g.get("module"),
             "defaults": g.get("defaults", {}) or {},
-            "experiments": exps
+            "experiments": exps,
         }
     return groups
 
-def expand_global_experiments(data: dict, group_names: List[str]) -> List[dict]:
+def expand_global_experiments(data: dict, group_names: list[str]) -> list[dict]:
     ge_list = data.get("global_experiments", []) or []
     out = []
     for ge in ge_list:
@@ -160,7 +170,7 @@ def resolve_module_for_group(gname: str, ginfo: dict, module_map: dict) -> str:
     if gname in module_map: return module_map[gname]
     return f"{gname}"
 
-def build_manifest(data: dict, module_map: dict, videos: List[dict]) -> List[dict]:
+def build_manifest(data: dict, module_map: dict, videos: list[dict]) -> list[dict]:
     groups = normalize_groups(data)
     global_exps = expand_global_experiments(data, list(groups.keys()))
     manifest = []
@@ -179,7 +189,7 @@ def build_manifest(data: dict, module_map: dict, videos: List[dict]) -> List[dic
                 for vid in target_videos:
                     manifest.append({
                         "group": gname, "exp_name": exp["name"], "module": module,
-                        "config": cfg, "video": vid
+                        "config": cfg, "video": vid,
                     })
 
         # Global experiments
@@ -193,7 +203,7 @@ def build_manifest(data: dict, module_map: dict, videos: List[dict]) -> List[dic
                 for vid in target_videos:
                     manifest.append({
                         "group": gname, "exp_name": ge["name"], "module": module,
-                        "config": cfg, "video": vid
+                        "config": cfg, "video": vid,
                     })
 
     for m in manifest:
@@ -211,7 +221,7 @@ def compute_basic_summary(per_frame_df: pd.DataFrame) -> dict:
                 out[f"{col}_std"]  = float(per_frame_df[col].std(ddof=0))
         except Exception:
             pass
-    out["num_frames"] = int(len(per_frame_df))
+    out["num_frames"] = len(per_frame_df)
     return out
 
 def normalize_result_structure(res: dict):
@@ -248,7 +258,7 @@ def _child_worker(module_name: str, cfg: dict, run_dir: str, ret_path: str):
     sys.stderr = open(stderr_path, "w")
     try:
         mod = importlib.import_module(module_name)
-        fn = getattr(mod, "run")
+        fn = mod.run
         result = fn(cfg)
         payload = {"ok": True, "result": result}
     except Exception:

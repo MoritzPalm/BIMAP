@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-paper_summaries_from_config_with_crispness_pct.py
+"""paper_summaries_from_config_with_crispness_pct.py
 
 Paper-ready tables with ONE ROW PER CONFIGURATION (read from config.json), averaged over videos,
 including a *crispness improvement (%)* vs the **uncorrected input video**.
@@ -30,16 +29,17 @@ Outputs
 """
 
 from __future__ import annotations
+
 import argparse
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
 
 # Import utilities for computing input crispness from the raw video
-from utils import load_video, crispness  # noqa: F401
+from utils import crispness, load_video
 
 # ----------------- config -----------------
 METRICS = [
@@ -66,8 +66,8 @@ MAX_TOTAL_PARAM_COLS = 12  # INCLUDING required params
 
 
 # ----------------- helpers -----------------
-def flatten_dict(d: Dict[str, Any], prefix: str = "", sep: str = ".") -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def flatten_dict(d: dict[str, Any], prefix: str = "", sep: str = ".") -> dict[str, Any]:
+    out: dict[str, Any] = {}
     if not isinstance(d, dict):
         return out
     for k, v in d.items():
@@ -208,7 +208,7 @@ def sanitize_filename(s: str) -> str:
     return "".join(ch if ch.isalnum() or ch in ("_", "-", ".") else "_" for ch in s)
 
 
-def metric_sort_key(df: pd.DataFrame) -> Tuple[List[str], List[bool]]:
+def metric_sort_key(df: pd.DataFrame) -> tuple[list[str], list[bool]]:
     cols, asc = [], []
     if "ssim_mean" in df.columns:
         cols.append("ssim_mean"); asc.append(False)
@@ -238,8 +238,8 @@ KNOWN_CONFIG_KEYS = {
     "method": "cfg.method",
 }
 
-def extract_cfg_from_config_json(cfgj: dict) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def extract_cfg_from_config_json(cfgj: dict) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     if not isinstance(cfgj, dict):
         return out
 
@@ -278,7 +278,7 @@ CWM_MEAN_KEYS = ["m.corr_with_mean_mean", "corr_with_mean_mean", "corr_with_mean
 CWM_STD_KEYS  = ["m.corr_with_mean_std",  "corr_with_mean_std",  "corr_with_mean.std"]
 
 
-def _pick_first_flat(flat: Dict[str, Any], candidates: List[str]) -> float:
+def _pick_first_flat(flat: dict[str, Any], candidates: list[str]) -> float:
     for k in candidates:
         if k in flat:
             val = _safe_float(flat.get(k))
@@ -338,7 +338,7 @@ def _to_gray_float01(x: np.ndarray) -> np.ndarray:
     return arr
 
 
-def _corr_with_temporal_mean(frames: List[np.ndarray]) -> Tuple[float, float]:
+def _corr_with_temporal_mean(frames: list[np.ndarray]) -> tuple[float, float]:
     if not frames:
         return (np.nan, np.nan)
     gs = [_to_gray_float01(f) for f in frames]
@@ -397,7 +397,7 @@ def compute_input_crispness_from_config(cfgj: dict, run_dir: Path) -> float:
 
 
 def scan_runs_tree(runs_root: Path) -> pd.DataFrame:
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     if not runs_root.exists():
         raise SystemExit(f"Runs root '{runs_root}' does not exist.")
 
@@ -414,7 +414,7 @@ def scan_runs_tree(runs_root: Path) -> pd.DataFrame:
                             res_flat = flatten_dict(resj)
 
                             # cfg from result.json (flattened)
-                            cfg_flat: Dict[str, Any] = {}
+                            cfg_flat: dict[str, Any] = {}
                             for key in ("cfg", "config", "config_dict"):
                                 if isinstance(resj.get(key), dict):
                                     cfg_flat.update(flatten_dict(resj[key], prefix="cfg"))
@@ -556,7 +556,7 @@ def infer_missing_input_crispness(df: pd.DataFrame) -> pd.DataFrame:
             if len(cand_vals) > 0:
                 val = float(cand_vals.median())
         if not np.isnan(val):
-            d = dict(zip(key_vid, keys))
+            d = dict(zip(key_vid, keys, strict=False))
             d["inferred_input_crispness"] = val
             inferred.append(d)
 
@@ -581,8 +581,8 @@ def normalize_flags_and_aliases(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ----------------- parameter selection & aggregation -----------------
-def select_param_columns_for_method(df_m: pd.DataFrame) -> List[str]:
-    chosen: List[str] = [c for c in REQUIRED_PARAM_COLS if c in df_m.columns]
+def select_param_columns_for_method(df_m: pd.DataFrame) -> list[str]:
+    chosen: list[str] = [c for c in REQUIRED_PARAM_COLS if c in df_m.columns]
 
     cfg_cols = [c for c in df_m.columns if c.startswith("cfg.")]
     for c in cfg_cols:
@@ -594,11 +594,7 @@ def select_param_columns_for_method(df_m: pd.DataFrame) -> List[str]:
             continue
         is_boolish = df_m[c].dropna().map(lambda x: isinstance(x, (bool, np.bool_)) or str(x).lower() in ("true","false")).all()
         is_numeric = pd.api.types.is_numeric_dtype(df_m[c])
-        if is_boolish:
-            chosen.append(c)
-        elif is_numeric and nunique <= MAX_NUMERIC_UNIQUE:
-            chosen.append(c)
-        elif not is_numeric and nunique <= MAX_PARAM_UNIQUE:
+        if is_boolish or (is_numeric and nunique <= MAX_NUMERIC_UNIQUE) or (not is_numeric and nunique <= MAX_PARAM_UNIQUE):
             chosen.append(c)
         if len(chosen) >= MAX_TOTAL_PARAM_COLS:
             break
@@ -610,7 +606,7 @@ def select_param_columns_for_method(df_m: pd.DataFrame) -> List[str]:
     return final
 
 
-def per_video_means(df: pd.DataFrame, key_cols: List[str]) -> pd.DataFrame:
+def per_video_means(df: pd.DataFrame, key_cols: list[str]) -> pd.DataFrame:
     agg_spec = {}
     for mcol, _short in METRICS:
         if mcol in df.columns:
@@ -693,19 +689,19 @@ def summarize_method(df_m: pd.DataFrame, runs_root: Path, group: str, module: st
     summ = pv.groupby(key_cfg, dropna=False).agg(**agg).reset_index().merge(vids, on=key_cfg, how="left")
 
     if "ssim_mean" in summ.columns:
-        summ["ssim_pm"] = [fmt_pm(m, s, 3) for m,s in zip(summ["ssim_mean"], summ["ssim_std"])]
+        summ["ssim_pm"] = [fmt_pm(m, s, 3) for m,s in zip(summ["ssim_mean"], summ["ssim_std"], strict=False)]
     if "mse_mean" in summ.columns:
-        summ["mse_pm"]  = [fmt_pm_mse(m, s) for m,s in zip(summ["mse_mean"], summ["mse_std"])]
+        summ["mse_pm"]  = [fmt_pm_mse(m, s) for m,s in zip(summ["mse_mean"], summ["mse_std"], strict=False)]
     if "crisp_mean" in summ.columns:
-        summ["crisp_pm"]= [fmt_pm(m, s, 3) for m,s in zip(summ["crisp_mean"], summ["crisp_std"])]
+        summ["crisp_pm"]= [fmt_pm(m, s, 3) for m,s in zip(summ["crisp_mean"], summ["crisp_std"], strict=False)]
     if "crisp_pct_mean" in summ.columns:
         def fmt_pct(m, s):
             if pd.isna(m) or pd.isna(s):
                 return ""
             return f"{m:.1f}% ± {s:.1f}%"
-        summ["crisp_pct_pm"] = [fmt_pct(m, s) for m,s in zip(summ["crisp_pct_mean"], summ["crisp_pct_std"])]
+        summ["crisp_pct_pm"] = [fmt_pct(m, s) for m,s in zip(summ["crisp_pct_mean"], summ["crisp_pct_std"], strict=False)]
     if "rt_mean" in summ.columns:
-        summ["rt_pm"]   = [fmt_pm(m, s, 1) for m,s in zip(summ["rt_mean"], summ["rt_std"])]
+        summ["rt_pm"]   = [fmt_pm(m, s, 1) for m,s in zip(summ["rt_mean"], summ["rt_std"], strict=False)]
 
     sort_cols, sort_asc = metric_sort_key(summ)
     if sort_cols:

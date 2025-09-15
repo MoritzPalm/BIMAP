@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Recompute per-frame metrics (SSIM, MSE, absolute crispness for ref & output,
+"""Recompute per-frame metrics (SSIM, MSE, absolute crispness for ref & output,
 crispness % change vs uncorrected, correlation-with-mean) for each run under:
   output/<group>/<experiment>/<category>/<video_id>/run_<id>/
 
@@ -36,17 +35,16 @@ Important handling:
 """
 
 from __future__ import annotations
+
 import argparse
 import json
 from pathlib import Path
-from typing import List, Tuple, Optional, Dict
 
 import numpy as np
 import pandas as pd
-from skimage.metrics import structural_similarity as ssim_metric
-from skimage.metrics import mean_squared_error as mse_metric
-
 from cotracker.utils.visualizer import read_video_from_path
+from skimage.metrics import mean_squared_error as mse_metric
+from skimage.metrics import structural_similarity as ssim_metric
 from utils import crispness  # your crispness(image) implementation
 
 # ------------------------- IO helpers -------------------------
@@ -64,7 +62,7 @@ def read_json(path: Path) -> dict:
 def write_json(path: Path, data: dict) -> None:
     path.write_text(json.dumps(data, indent=2, sort_keys=True))
 
-def list_videos_in(dir_path: Path) -> List[Path]:
+def list_videos_in(dir_path: Path) -> list[Path]:
     if not dir_path.exists():
         return []
     return sorted([p for p in dir_path.iterdir() if p.suffix.lower() in VID_EXTS])
@@ -78,8 +76,7 @@ def as_float64(arr: np.ndarray) -> np.ndarray:
     return arr
 
 def squeeze_singletons_keep_3d4d(arr: np.ndarray) -> np.ndarray:
-    """
-    Squeeze singleton axes but keep 3D/4D forms (avoid collapsing T/H/W/C to <3 dims).
+    """Squeeze singleton axes but keep 3D/4D forms (avoid collapsing T/H/W/C to <3 dims).
     """
     arr = np.asarray(arr)
     while arr.ndim > 4 or (arr.ndim > 2 and 1 in arr.shape):
@@ -94,8 +91,7 @@ def squeeze_singletons_keep_3d4d(arr: np.ndarray) -> np.ndarray:
     return arr
 
 def normalize_video_shape(arr: np.ndarray) -> np.ndarray:
-    """
-    Normalize common video layouts to (T,H,W) or (T,H,W,C).
+    """Normalize common video layouts to (T,H,W) or (T,H,W,C).
 
     Accepts:
       (T,H,W,C), (T,H,W),
@@ -114,10 +110,9 @@ def normalize_video_shape(arr: np.ndarray) -> np.ndarray:
         t_axis = int(np.argmax(sh))  # largest dimension is time
         if t_axis == 0:
             return arr
-        elif t_axis == 2:
+        if t_axis == 2:
             return np.moveaxis(arr, 2, 0)  # (H,W,T)->(T,H,W)
-        else:
-            return np.moveaxis(arr, 1, 0)  # (H,T,W)->(T,H,W)
+        return np.moveaxis(arr, 1, 0)  # (H,T,W)->(T,H,W)
 
     if arr.ndim == 4:
         sh = list(arr.shape)
@@ -165,8 +160,7 @@ def normalize_video_shape(arr: np.ndarray) -> np.ndarray:
     return arr  # unexpected; metrics handle squeezing later
 
 def channels_equal(img: np.ndarray, atol: float = 1e-8) -> bool:
-    """
-    Return True if img is (H,W,3/4) and all first 3 channels are equal within tolerance.
+    """Return True if img is (H,W,3/4) and all first 3 channels are equal within tolerance.
     """
     if img.ndim != 3 or img.shape[-1] < 3:
         return False
@@ -177,8 +171,7 @@ def channels_equal(img: np.ndarray, atol: float = 1e-8) -> bool:
     return True
 
 def collapse_rgb_grayscale(vol: np.ndarray, atol: float = 1e-8) -> np.ndarray:
-    """
-    If a video is grayscale-but-saved-as-RGB (all channels equal), drop to single-channel.
+    """If a video is grayscale-but-saved-as-RGB (all channels equal), drop to single-channel.
     Works for (T,H,W,3/4). Keeps (T,H,W) unchanged.
     """
     if vol.ndim == 4 and vol.shape[-1] >= 3:
@@ -194,9 +187,8 @@ def collapse_rgb_grayscale(vol: np.ndarray, atol: float = 1e-8) -> np.ndarray:
             return vol[..., 0]  # (T,H,W)
     return vol
 
-def ensure_channel_compat(a: np.ndarray, b: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Make a and b have the same number of channels (if any).
+def ensure_channel_compat(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Make a and b have the same number of channels (if any).
     If one is (H,W) and the other (H,W,C), tile the single-channel to C or crop to min C.
     """
     if a.ndim == 2 and b.ndim == 2:
@@ -221,16 +213,15 @@ def ensure_channel_compat(a: np.ndarray, b: np.ndarray) -> Tuple[np.ndarray, np.
         return a, b
     return np.squeeze(a), np.squeeze(b)
 
-def center_crop_spatial(a: np.ndarray, b: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+def center_crop_spatial(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Center-crop a and b to the same HxW (min over spatial dims)."""
     def get_hw(x):
         if x.ndim == 2:
             return x.shape[0], x.shape[1]
-        elif x.ndim == 3:
+        if x.ndim == 3:
             return x.shape[0], x.shape[1]  # assuming (H,W,C)
-        else:
-            x = np.squeeze(x)
-            return x.shape[0], x.shape[1]
+        x = np.squeeze(x)
+        return x.shape[0], x.shape[1]
 
     Ha, Wa = get_hw(a)
     Hb, Wb = get_hw(b)
@@ -241,28 +232,26 @@ def center_crop_spatial(a: np.ndarray, b: np.ndarray) -> Tuple[np.ndarray, np.nd
             hh, ww = x.shape
             top = (hh - H) // 2; left = (ww - W) // 2
             return x[top:top+H, left:left+W]
-        elif x.ndim == 3:
+        if x.ndim == 3:
             hh, ww = x.shape[0], x.shape[1]
             top = (hh - H) // 2; left = (ww - W) // 2
             return x[top:top+H, left:left+W, ...]
-        else:
-            y = np.squeeze(x)
-            hh, ww = y.shape[0], y.shape[1]
-            top = (hh - H) // 2; left = (ww - W) // 2
-            return y[top:top+H, left:left+W]
+        y = np.squeeze(x)
+        hh, ww = y.shape[0], y.shape[1]
+        top = (hh - H) // 2; left = (ww - W) // 2
+        return y[top:top+H, left:left+W]
 
     return crop(a), crop(b)
 
 def crop_all_to_common_video(vol: np.ndarray) -> np.ndarray:
-    """
-    Ensure a consistent spatial size across frames by center-cropping to min HxW if needed.
+    """Ensure a consistent spatial size across frames by center-cropping to min HxW if needed.
     """
     T = vol.shape[0]
     if vol.ndim == 4:
         Hs = [vol[t].shape[0] for t in range(T)]
         Ws = [vol[t].shape[1] for t in range(T)]
         H = min(Hs); W = min(Ws)
-        if all(h == H and w == W for h, w in zip(Hs, Ws)):
+        if all(h == H and w == W for h, w in zip(Hs, Ws, strict=False)):
             return vol
         out = np.empty((T, H, W, vol.shape[-1]), dtype=vol.dtype)
         for t in range(T):
@@ -271,11 +260,11 @@ def crop_all_to_common_video(vol: np.ndarray) -> np.ndarray:
             top = (hh - H) // 2; left = (ww - W) // 2
             out[t] = frame[top:top+H, left:left+W, :]
         return out
-    elif vol.ndim == 3:
+    if vol.ndim == 3:
         Hs = [vol[t].shape[0] for t in range(T)]
         Ws = [vol[t].shape[1] for t in range(T)]
         H = min(Hs); W = min(Ws)
-        if all(h == H and w == W for h, w in zip(Hs, Ws)):
+        if all(h == H and w == W for h, w in zip(Hs, Ws, strict=False)):
             return vol
         out = np.empty((T, H, W), dtype=vol.dtype)
         for t in range(T):
@@ -284,8 +273,7 @@ def crop_all_to_common_video(vol: np.ndarray) -> np.ndarray:
             top = (hh - H) // 2; left = (ww - W) // 2
             out[t] = frame[top:top+H, left:left+W]
         return out
-    else:
-        return vol
+    return vol
 
 # ------------------------- loading -------------------------
 
@@ -293,7 +281,7 @@ def load_video_or_stack(path: Path) -> np.ndarray:
     """Use your project's loader for ANY video or multi-page tiff."""
     return read_video_from_path(str(path))
 
-def find_artifact_video(run_dir: Path) -> Optional[np.ndarray]:
+def find_artifact_video(run_dir: Path) -> np.ndarray | None:
     """Find a single video in artifacts/ and load it via read_video_from_path."""
     art = run_dir / "artifacts"
     vids = list_videos_in(art)
@@ -308,9 +296,8 @@ def find_artifact_video(run_dir: Path) -> Optional[np.ndarray]:
 
 # ------------------------- data path resolution -------------------------
 
-def resolve_data_path(run_dir: Path, data_path: str) -> Optional[Path]:
-    """
-    Resolve a possibly relative data path according to your layout:
+def resolve_data_path(run_dir: Path, data_path: str) -> Path | None:
+    """Resolve a possibly relative data path according to your layout:
 
     output/                           <- runs live here
     input/ or data/input/             <- reference stacks live here (sibling of output/)
@@ -349,9 +336,8 @@ def resolve_data_path(run_dir: Path, data_path: str) -> Optional[Path]:
             break
     return None
 
-def load_reference_video(run_dir: Path) -> Optional[np.ndarray]:
-    """
-    Load reference (uncorrected) sequence from config.json["data"]["path"],
+def load_reference_video(run_dir: Path) -> np.ndarray | None:
+    """Load reference (uncorrected) sequence from config.json["data"]["path"],
     using read_video_from_path for videos/tiffs. Never uses config["run"].
     """
     cfg = read_json(run_dir / "config.json")
@@ -374,8 +360,7 @@ def load_reference_video(run_dir: Path) -> Optional[np.ndarray]:
 # ------------------------- metrics -------------------------
 
 def pearson_corr(a: np.ndarray, b: np.ndarray) -> float:
-    """
-    Pearson correlation between two same-shaped images (any channels).
+    """Pearson correlation between two same-shaped images (any channels).
     Returns NaN if either input is (near-)constant.
     """
     x = a.reshape(-1)
@@ -388,9 +373,8 @@ def pearson_corr(a: np.ndarray, b: np.ndarray) -> float:
         return float("nan")
     return float(np.dot(x_m, y_m) / (x_norm * y_norm))
 
-def compute_metrics_for_pair(ref: np.ndarray, out: np.ndarray) -> Tuple[float, float, float, float, float]:
-    """
-    Return (ssim, mse, c_ref, c_out, crispness_delta_percent) for one frame pair.
+def compute_metrics_for_pair(ref: np.ndarray, out: np.ndarray) -> tuple[float, float, float, float, float]:
+    """Return (ssim, mse, c_ref, c_out, crispness_delta_percent) for one frame pair.
     Assumes ref/out already center-cropped and channel-aligned.
     """
     # SSIM: use output dynamic range to avoid degenerate data_range
@@ -416,7 +400,7 @@ def compute_metrics_for_pair(ref: np.ndarray, out: np.ndarray) -> Tuple[float, f
 
     return float(ssim), float(mse), c_ref, c_out, float(delta_c)
 
-def summarize(vals: List[float]) -> Tuple[float, float]:
+def summarize(vals: list[float]) -> tuple[float, float]:
     arr = np.asarray(vals, dtype=np.float64)
     arr = arr[np.isfinite(arr)]
     if arr.size == 0:
@@ -425,7 +409,7 @@ def summarize(vals: List[float]) -> Tuple[float, float]:
 
 # ------------------------- per-run worker -------------------------
 
-def process_run(run_dir: Path) -> Optional[Dict]:
+def process_run(run_dir: Path) -> dict | None:
     """Recompute metrics for a single run. Returns summary dict or None if skipped."""
     out_vid = find_artifact_video(run_dir)
     ref_vid = load_reference_video(run_dir)
@@ -449,12 +433,12 @@ def process_run(run_dir: Path) -> Optional[Dict]:
     out_vid = crop_all_to_common_video(out_vid)
     mean_out = np.mean(out_vid, axis=0)
 
-    ssim_list: List[float] = []
-    mse_list: List[float] = []
-    crisp_ref_list: List[float] = []
-    crisp_out_list: List[float] = []
-    crisp_delta_list: List[float] = []
-    corr_mean_list: List[float] = []
+    ssim_list: list[float] = []
+    mse_list: list[float] = []
+    crisp_ref_list: list[float] = []
+    crisp_out_list: list[float] = []
+    crisp_delta_list: list[float] = []
+    corr_mean_list: list[float] = []
 
     for t in range(T):
         rf = as_float64(ref_vid[t])
@@ -520,7 +504,7 @@ def process_run(run_dir: Path) -> Optional[Dict]:
     write_json(run_dir / "recomputed_result.json", {
         "ok": True,
         "from_artifacts": True,
-        "metrics": {"summary": summary}
+        "metrics": {"summary": summary},
     })
 
     # For global index
@@ -534,13 +518,13 @@ def process_run(run_dir: Path) -> Optional[Dict]:
         "run_id": run_dir.name.replace("run_", ""),
         "run_dir": str(run_dir),
         "data.path.raw": data_path_raw or "",
-        **summary
+        **summary,
     }
 
 # ------------------------- traversal -------------------------
 
-def find_run_dirs(root: Path) -> List[Path]:
-    run_dirs: List[Path] = []
+def find_run_dirs(root: Path) -> list[Path]:
+    run_dirs: list[Path] = []
     if not root.exists():
         return []
     for group_dir in sorted([p for p in root.iterdir() if p.is_dir()]):

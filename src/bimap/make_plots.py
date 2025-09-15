@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Two-frame visualization from runs/ with per-source outputs and tight 2x2 summaries.
+"""Two-frame visualization from runs/ with per-source outputs and tight 2x2 summaries.
 
 Per source (raw + methods):
   - frame_000.npy / frame_000.png
@@ -17,77 +16,78 @@ Notes:
 - OpenCV backend for MP4/AVI; tifffile for TIFFs.
 - Any artifact whose basename is literally "video.mp4" is ignored.
 - All PNGs include a scale bar + label (µm). Use --bar-um to fix the displayed length.
+
 """
 
 from __future__ import annotations
-import os, re, json, glob, argparse
-from typing import Dict, List, Optional, Tuple
 
-import numpy as np
-import tifffile
+import argparse
+import glob
+import json
+import os
+import re
+
 import cv2
 import matplotlib.pyplot as plt
+import numpy as np
+import tifffile
+from matplotlib import patheffects
 from matplotlib.patches import Rectangle
-import matplotlib.patheffects as patheffects
 from skimage.util import img_as_float32
-
 
 # -------------------------- runs discovery -------------------------- #
 
-def read_json(path: str) -> Optional[dict]:
+def read_json(path: str) -> dict | None:
     try:
-        with open(path, 'r') as f:
+        with open(path) as f:
             return json.load(f)
     except Exception:
         return None
 
-def discover_runs(runs_root: str, group: str, experiment: str, category: str, vid: str) -> List[str]:
+def discover_runs(runs_root: str, group: str, experiment: str, category: str, vid: str) -> list[str]:
     base = os.path.join(runs_root, group, experiment, category, vid)
-    return sorted(glob.glob(os.path.join(base, 'run_*')))
+    return sorted(glob.glob(os.path.join(base, "run_*")))
 
-def pick_run(run_dirs: List[str], select: str, metric_mode: str = 'max') -> Optional[str]:
+def pick_run(run_dirs: list[str], select: str, metric_mode: str = "max") -> str | None:
     if not run_dirs:
         return None
-    if select == 'latest':
+    if select == "latest":
         return max(run_dirs, key=lambda d: os.path.getmtime(d))
-    m = re.match(r'^best:(.+)$', select)
+    m = re.match(r"^best:(.+)$", select)
     if m:
         key = m.group(1)
         best_dir, best_val = None, None
         for d in run_dirs:
-            rj = read_json(os.path.join(d, 'result.json')) or {}
+            rj = read_json(os.path.join(d, "result.json")) or {}
             val = rj
-            for part in key.split('.'):
+            for part in key.split("."):
                 val = val.get(part) if isinstance(val, dict) else None
             if val is None:
                 continue
-            if best_val is None:
+            if best_val is None or (metric_mode == "max" and val > best_val) or (metric_mode == "min" and val < best_val):
                 best_val, best_dir = val, d
-            else:
-                if (metric_mode == 'max' and val > best_val) or (metric_mode == 'min' and val < best_val):
-                    best_val, best_dir = val, d
         return best_dir or max(run_dirs, key=lambda d: os.path.getmtime(d))
     return max(run_dirs, key=lambda d: os.path.getmtime(d))
 
-def find_artifact(run_dir: str, artifact_glob: str, artifact_json_key: Optional[str]) -> Optional[str]:
+def find_artifact(run_dir: str, artifact_glob: str, artifact_json_key: str | None) -> str | None:
     # Prefer JSON-indicated artifact
     if artifact_json_key:
-        for fn in ('result.json', '_child_return.json', 'config.json'):
+        for fn in ("result.json", "_child_return.json", "config.json"):
             js = read_json(os.path.join(run_dir, fn))
             if not js:
                 continue
             val = js
-            for part in artifact_json_key.split('.'):
+            for part in artifact_json_key.split("."):
                 val = val.get(part) if isinstance(val, dict) else None
             if isinstance(val, str):
                 cand = val if os.path.isabs(val) else os.path.join(run_dir, val)
-                if os.path.exists(cand) and os.path.basename(cand) != 'video.mp4':
+                if os.path.exists(cand) and os.path.basename(cand) != "video.mp4":
                     return cand
     # Fallback: glob
-    patterns = [p.strip() for p in artifact_glob.split(',') if p.strip()]
+    patterns = [p.strip() for p in artifact_glob.split(",") if p.strip()]
     for pat in patterns:
         for cand in glob.glob(os.path.join(run_dir, pat)):
-            if cand.lower().endswith(('.tif', '.tiff', '.mp4', '.avi')) and os.path.basename(cand) != 'video.mp4':
+            if cand.lower().endswith((".tif", ".tiff", ".mp4", ".avi")) and os.path.basename(cand) != "video.mp4":
                 return cand
     return None
 
@@ -105,15 +105,14 @@ def _to_gray(img: np.ndarray) -> np.ndarray:
         return np.tensordot(img[..., :3], w, axes=([-1], [0]))
     raise ValueError(f"Unexpected image shape: {img.shape}")
 
-def essential_indices(T: int, f2: int) -> Tuple[int, int]:
+def essential_indices(T: int, f2: int) -> tuple[int, int]:
     return 0, min(f2, max(0, T - 1))
 
-def load_two_frames(path: str, frame2: int = 399) -> List[np.ndarray]:
-    """
-    Return [frame0, frameN] as float32 (H,W). Uses OpenCV for videos; tifffile for TIFFs.
+def load_two_frames(path: str, frame2: int = 399) -> list[np.ndarray]:
+    """Return [frame0, frameN] as float32 (H,W). Uses OpenCV for videos; tifffile for TIFFs.
     """
     path = os.fspath(path)
-    if path.lower().endswith(('.tif', '.tiff')):
+    if path.lower().endswith((".tif", ".tiff")):
         with tifffile.TiffFile(path) as tf:
             T = len(tf.pages)
             idx0, idxN = essential_indices(T, frame2)
@@ -153,9 +152,8 @@ def _choose_bar_um(img_w_px: int, px_um: float, target_frac: float = 0.15) -> fl
     desired_um = img_w_px * px_um * target_frac
     return min(nice, key=lambda x: abs(x - desired_um))
 
-def _draw_scale_bar(ax, img_shape, px_um: float, bar_um: Optional[float] = None):
-    """
-    Draw a bottom-right scale bar + label fully INSIDE the axes.
+def _draw_scale_bar(ax, img_shape, px_um: float, bar_um: float | None = None):
+    """Draw a bottom-right scale bar + label fully INSIDE the axes.
     White bar thicker; thin black outline and text halo to match.
     """
     H, W = img_shape
@@ -172,10 +170,10 @@ def _draw_scale_bar(ax, img_shape, px_um: float, bar_um: Optional[float] = None)
 
     rect = Rectangle(
         (x0, y0), bar_px, thickness,
-        facecolor='white',
-        edgecolor='black',
+        facecolor="white",
+        edgecolor="black",
         linewidth=0.5,   # thin outline
-        alpha=0.95, zorder=10
+        alpha=0.95, zorder=10,
     )
     ax.add_patch(rect)
 
@@ -183,17 +181,17 @@ def _draw_scale_bar(ax, img_shape, px_um: float, bar_um: Optional[float] = None)
     txt = f"{bar_um:g} µm"
     text = ax.text(
         x0 + bar_px / 2, y_text, txt,
-        ha='center', va='bottom',
-        color='white', fontsize=9, zorder=11
+        ha="center", va="bottom",
+        color="white", fontsize=9, zorder=11,
     )
     text.set_path_effects([
-        patheffects.Stroke(linewidth=0.5, foreground='black'),  # thin halo
-        patheffects.Normal()
+        patheffects.Stroke(linewidth=0.5, foreground="black"),  # thin halo
+        patheffects.Normal(),
     ])
 
 def save_npy_png_bar(img: np.ndarray, npy_path: str, png_path: str,
-                     percentile_vis: Tuple[float, float] = (1, 99),
-                     *, pixel_size_um: float, bar_um: Optional[float] = None,
+                     percentile_vis: tuple[float, float] = (1, 99),
+                     *, pixel_size_um: float, bar_um: float | None = None,
                      dpi: int = 600, figsize_in: float = 5.0,
                      save_svg: bool = False, save_pdf: bool = False):
     np.save(npy_path, img)
@@ -205,24 +203,24 @@ def save_npy_png_bar(img: np.ndarray, npy_path: str, png_path: str,
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
     ax.set_position([0, 0, 1, 1])
 
-    ax.imshow(img, cmap='gray', vmin=vmin, vmax=vmax)
-    ax.axis('off')
+    ax.imshow(img, cmap="gray", vmin=vmin, vmax=vmax)
+    ax.axis("off")
     _draw_scale_bar(ax, img.shape, pixel_size_um, bar_um)
 
     # Tight crop to the axes content with minimal padding
-    fig.savefig(png_path, dpi=dpi, bbox_inches='tight', pad_inches=0.005)
+    fig.savefig(png_path, dpi=dpi, bbox_inches="tight", pad_inches=0.005)
     if save_svg:
-        fig.savefig(os.path.splitext(png_path)[0] + ".svg", bbox_inches='tight', pad_inches=0.005)
+        fig.savefig(os.path.splitext(png_path)[0] + ".svg", bbox_inches="tight", pad_inches=0.005)
     if save_pdf:
-        fig.savefig(os.path.splitext(png_path)[0] + ".pdf", bbox_inches='tight', pad_inches=0.005)
+        fig.savefig(os.path.splitext(png_path)[0] + ".pdf", bbox_inches="tight", pad_inches=0.005)
     plt.close(fig)
 
 def save_diff_images_bar(img0: np.ndarray, imgN: np.ndarray, out_dir: str, prefix: str,
-                         *, pixel_size_um: float, bar_um: Optional[float] = None,
+                         *, pixel_size_um: float, bar_um: float | None = None,
                          dpi: int = 600, figsize_in: float = 5.0,
                          save_svg: bool = False, save_pdf: bool = False):
     diff = img0 - imgN
-    np.save(os.path.join(out_dir, f'{prefix}_diff_000_minus_N.npy'), diff)
+    np.save(os.path.join(out_dir, f"{prefix}_diff_000_minus_N.npy"), diff)
 
     v = np.percentile(np.abs(diff), 99)
     v = float(v) if v > 0 else 1e-6
@@ -231,15 +229,15 @@ def save_diff_images_bar(img0: np.ndarray, imgN: np.ndarray, out_dir: str, prefi
     fig, ax = plt.subplots(figsize=(figsize_in, figsize_in))
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
     ax.set_position([0, 0, 1, 1])
-    ax.imshow(diff, cmap='seismic', vmin=-v, vmax=v)
-    ax.axis('off')
+    ax.imshow(diff, cmap="seismic", vmin=-v, vmax=v)
+    ax.axis("off")
     _draw_scale_bar(ax, diff.shape, pixel_size_um, bar_um)
-    spng = os.path.join(out_dir, f'{prefix}_diff_000_minus_N_signed.png')
-    fig.savefig(spng, dpi=dpi, bbox_inches='tight', pad_inches=0.005)
+    spng = os.path.join(out_dir, f"{prefix}_diff_000_minus_N_signed.png")
+    fig.savefig(spng, dpi=dpi, bbox_inches="tight", pad_inches=0.005)
     if save_svg:
-        fig.savefig(os.path.splitext(spng)[0] + ".svg", bbox_inches='tight', pad_inches=0.005)
+        fig.savefig(os.path.splitext(spng)[0] + ".svg", bbox_inches="tight", pad_inches=0.005)
     if save_pdf:
-        fig.savefig(os.path.splitext(spng)[0] + ".pdf", bbox_inches='tight', pad_inches=0.005)
+        fig.savefig(os.path.splitext(spng)[0] + ".pdf", bbox_inches="tight", pad_inches=0.005)
     plt.close(fig)
 
     # Abs diff
@@ -247,15 +245,15 @@ def save_diff_images_bar(img0: np.ndarray, imgN: np.ndarray, out_dir: str, prefi
     fig, ax = plt.subplots(figsize=(figsize_in, figsize_in))
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
     ax.set_position([0, 0, 1, 1])
-    ax.imshow(diff_abs, cmap='magma')
-    ax.axis('off')
+    ax.imshow(diff_abs, cmap="magma")
+    ax.axis("off")
     _draw_scale_bar(ax, diff_abs.shape, pixel_size_um, bar_um)
-    apng = os.path.join(out_dir, f'{prefix}_diff_000_minus_N_abs.png')
-    fig.savefig(apng, dpi=dpi, bbox_inches='tight', pad_inches=0.005)
+    apng = os.path.join(out_dir, f"{prefix}_diff_000_minus_N_abs.png")
+    fig.savefig(apng, dpi=dpi, bbox_inches="tight", pad_inches=0.005)
     if save_svg:
-        fig.savefig(os.path.splitext(apng)[0] + ".svg", bbox_inches='tight', pad_inches=0.005)
+        fig.savefig(os.path.splitext(apng)[0] + ".svg", bbox_inches="tight", pad_inches=0.005)
     if save_pdf:
-        fig.savefig(os.path.splitext(apng)[0] + ".pdf", bbox_inches='tight', pad_inches=0.005)
+        fig.savefig(os.path.splitext(apng)[0] + ".pdf", bbox_inches="tight", pad_inches=0.005)
     plt.close(fig)
 
 
@@ -288,19 +286,19 @@ def _tight_grid_rects(aspect: float,
 def _imshow_panel(ax, img: np.ndarray):
     vmin, vmax = np.percentile(img, 1), np.percentile(img, 99)
     if vmax <= vmin: vmax = vmin + 1e-6
-    ax.imshow(img, cmap='gray', vmin=vmin, vmax=vmax)
-    ax.axis('off')
+    ax.imshow(img, cmap="gray", vmin=vmin, vmax=vmax)
+    ax.axis("off")
 
-def save_summary_grid(images_by_key: Dict[str, np.ndarray],
+def save_summary_grid(images_by_key: dict[str, np.ndarray],
                       out_svg: str,
-                      *, pixel_size_um: float, bar_um: Optional[float],
+                      *, pixel_size_um: float, bar_um: float | None,
                       figsize_in: float = 7.0,
                       gutter: float = 0.005,
                       label_pad: float = 0.035,
                       outer_pad: float = 0.01):
     """2x2 summary image with minimal whitespace and outside labels."""
-    order = [('raw', 'Raw'), ('ants', 'ANTs'),
-             ('cotracker', 'CoTracker'), ('normcorre', 'NoRMCorre')]
+    order = [("raw", "Raw"), ("ants", "ANTs"),
+             ("cotracker", "CoTracker"), ("normcorre", "NoRMCorre")]
 
     # Aspect from any available panel
     ref = None
@@ -316,13 +314,13 @@ def save_summary_grid(images_by_key: Dict[str, np.ndarray],
     rects, label_pad = _tight_grid_rects(aspect, figsize_in, gutter, label_pad, outer_pad)
 
     axes = []
-    for (key, _), rect in zip(order, rects):
+    for (key, _), rect in zip(order, rects, strict=False):
         ax = fig.add_axes(rect)
         img = images_by_key.get(key)
-        ax.axis('off')
+        ax.axis("off")
         if img is None:
-            ax.text(0.5, 0.5, 'missing', ha='center', va='center',
-                    color='red', fontsize=12, transform=ax.transAxes)
+            ax.text(0.5, 0.5, "missing", ha="center", va="center",
+                    color="red", fontsize=12, transform=ax.transAxes)
         else:
             _imshow_panel(ax, img)
             _draw_scale_bar(ax, img.shape, pixel_size_um, bar_um)
@@ -334,39 +332,38 @@ def save_summary_grid(images_by_key: Dict[str, np.ndarray],
         bbox = axes[idx].get_position()
         x = (bbox.x0 + bbox.x1) / 2
         y = bbox.y1 + (label_pad * 0.6)
-        fig.text(x, y, labels[idx], ha='center', va='bottom', fontsize=12, color='black')
+        fig.text(x, y, labels[idx], ha="center", va="bottom", fontsize=12, color="black")
     # Bottom labels
     for idx in [2, 3]:
         bbox = axes[idx].get_position()
         x = (bbox.x0 + bbox.x1) / 2
         y = bbox.y0 - (label_pad * 0.6)
-        fig.text(x, y, labels[idx], ha='center', va='top', fontsize=12, color='black')
+        fig.text(x, y, labels[idx], ha="center", va="top", fontsize=12, color="black")
 
-    fig.savefig(out_svg, bbox_inches='tight', pad_inches=0.01)
+    fig.savefig(out_svg, bbox_inches="tight", pad_inches=0.01)
     plt.close(fig)
 
-def save_summary_grid_signed_diffs(frames0_by_key: Dict[str, np.ndarray],
-                                   framesN_by_key: Dict[str, np.ndarray],
+def save_summary_grid_signed_diffs(frames0_by_key: dict[str, np.ndarray],
+                                   framesN_by_key: dict[str, np.ndarray],
                                    raw0: np.ndarray, rawN: np.ndarray,
                                    out_svg: str,
-                                   *, pixel_size_um: float, bar_um: Optional[float],
+                                   *, pixel_size_um: float, bar_um: float | None,
                                    figsize_in: float = 7.0,
                                    gutter: float = 0.005,
                                    label_pad: float = 0.035,
                                    outer_pad: float = 0.01,
-                                   scale: str = 'perpanel',
-                                   mode: str = 'temporal',
-                                   vmax_fixed: Optional[float] = None):
+                                   scale: str = "perpanel",
+                                   mode: str = "temporal",
+                                   vmax_fixed: float | None = None):
+    """2x2 summary of signed differences (bright color ensured):
+    - scale='perpanel' uses each panel's p99(|diff|) so details pop (default)
+    - scale='global' uses max p99 across panels (comparability)
+    - vmax_fixed overrides both (useful for consistent multi-figure panels)
+    - mode='temporal' uses (frame0 - frameN)
+    - mode='vsraw' uses (method_frameN - raw_frameN)
     """
-    2x2 summary of signed differences (bright color ensured):
-      - scale='perpanel' uses each panel's p99(|diff|) so details pop (default)
-      - scale='global' uses max p99 across panels (comparability)
-      - vmax_fixed overrides both (useful for consistent multi-figure panels)
-      - mode='temporal' uses (frame0 - frameN)
-      - mode='vsraw' uses (method_frameN - raw_frameN)
-    """
-    order = [('raw', 'Raw'), ('ants', 'ANTs'),
-             ('cotracker', 'CoTracker'), ('normcorre', 'NoRMCorre')]
+    order = [("raw", "Raw"), ("ants", "ANTs"),
+             ("cotracker", "CoTracker"), ("normcorre", "NoRMCorre")]
 
     # Aspect from any available 0-frame
     ref = next((frames0_by_key[k] for k, _ in order if frames0_by_key.get(k) is not None), None)
@@ -382,13 +379,12 @@ def save_summary_grid_signed_diffs(frames0_by_key: Dict[str, np.ndarray],
             diffs[k] = None
             p99s.append(0.0)
             continue
-        if mode == 'temporal':
+        if mode == "temporal":
             d = f0 - fN
-        else:  # vsraw
-            if k == 'raw':
-                d = fN - rawN  # ~0
-            else:
-                d = fN - rawN
+        elif k == "raw":
+            d = fN - rawN  # ~0
+        else:
+            d = fN - rawN
         diffs[k] = d
         p99s.append(float(np.percentile(np.abs(d), 99)))
 
@@ -400,21 +396,21 @@ def save_summary_grid_signed_diffs(frames0_by_key: Dict[str, np.ndarray],
 
     axes = []
     labels = [lbl for _, lbl in order]
-    for (key, _), rect in zip(order, rects):
+    for (key, _), rect in zip(order, rects, strict=False):
         ax = fig.add_axes(rect)
-        ax.axis('off')
+        ax.axis("off")
         d = diffs.get(key)
         if d is None:
-            ax.text(0.5, 0.5, 'missing', ha='center', va='center',
-                    color='red', fontsize=12, transform=ax.transAxes)
+            ax.text(0.5, 0.5, "missing", ha="center", va="center",
+                    color="red", fontsize=12, transform=ax.transAxes)
         else:
             if vmax_fixed is not None:
                 vmax = float(vmax_fixed) if vmax_fixed > 0 else 1e-6
-            elif scale == 'perpanel':
+            elif scale == "perpanel":
                 vmax = float(np.percentile(np.abs(d), 99)) or 1e-6
             else:
                 vmax = vmax_global
-            ax.imshow(d, cmap='seismic', vmin=-vmax, vmax=+vmax)
+            ax.imshow(d, cmap="seismic", vmin=-vmax, vmax=+vmax)
             _draw_scale_bar(ax, d.shape, pixel_size_um, bar_um)
         axes.append(ax)
 
@@ -423,63 +419,63 @@ def save_summary_grid_signed_diffs(frames0_by_key: Dict[str, np.ndarray],
         bbox = axes[idx].get_position()
         x = (bbox.x0 + bbox.x1) / 2
         y = bbox.y1 + (label_pad * 0.6)
-        fig.text(x, y, labels[idx], ha='center', va='bottom', fontsize=12, color='black')
+        fig.text(x, y, labels[idx], ha="center", va="bottom", fontsize=12, color="black")
     for idx in [2, 3]:
         bbox = axes[idx].get_position()
         x = (bbox.x0 + bbox.x1) / 2
         y = bbox.y0 - (label_pad * 0.6)
-        fig.text(x, y, labels[idx], ha='center', va='top', fontsize=12, color='black')
+        fig.text(x, y, labels[idx], ha="center", va="top", fontsize=12, color="black")
 
-    fig.savefig(out_svg, bbox_inches='tight', pad_inches=0.01)
+    fig.savefig(out_svg, bbox_inches="tight", pad_inches=0.01)
     plt.close(fig)
 
 
 # -------------------------- CLI -------------------------- #
 
 def parse_args():
-    ap = argparse.ArgumentParser(description='Save two frames and their temporal diff per source from runs/')
-    ap.add_argument('--runs-root', required=True)
-    ap.add_argument('--experiment', required=True)
-    ap.add_argument('--category', required=True)
-    ap.add_argument('--video-id', required=True)
-    ap.add_argument('--groups', nargs='+', required=True)
+    ap = argparse.ArgumentParser(description="Save two frames and their temporal diff per source from runs/")
+    ap.add_argument("--runs-root", required=True)
+    ap.add_argument("--experiment", required=True)
+    ap.add_argument("--category", required=True)
+    ap.add_argument("--video-id", required=True)
+    ap.add_argument("--groups", nargs="+", required=True)
 
     raw = ap.add_mutually_exclusive_group(required=True)
-    raw.add_argument('--raw-video', help='Path to raw video file for this video')
-    raw.add_argument('--raw-template', help='Template like "data/raw/{category}/{video_id}.tif"')
+    raw.add_argument("--raw-video", help="Path to raw video file for this video")
+    raw.add_argument("--raw-template", help='Template like "data/raw/{category}/{video_id}.tif"')
 
-    ap.add_argument('--select', default='latest', help='latest or best:<json.key>')
-    ap.add_argument('--metric-mode', choices=['max','min'], default='max')
-    ap.add_argument('--artifact-glob', default='artifacts/*.tif,artifacts/*.tiff,artifacts/*.mp4,artifacts/*.avi')
-    ap.add_argument('--artifact-json-key', default=None)
+    ap.add_argument("--select", default="latest", help="latest or best:<json.key>")
+    ap.add_argument("--metric-mode", choices=["max","min"], default="max")
+    ap.add_argument("--artifact-glob", default="artifacts/*.tif,artifacts/*.tiff,artifacts/*.mp4,artifacts/*.avi")
+    ap.add_argument("--artifact-json-key", default=None)
 
-    ap.add_argument('--frame-2', type=int, default=399, help='Use this as the second frame index (N)')
-    ap.add_argument('--outdir', default='results_frames')
+    ap.add_argument("--frame-2", type=int, default=399, help="Use this as the second frame index (N)")
+    ap.add_argument("--outdir", default="results_frames")
 
     # Scale bar
-    ap.add_argument('--pixel-size-um', type=float, required=True, help='Pixel size in microns (width=height)')
-    ap.add_argument('--bar-um', type=float, default=None, help='Optional fixed scalebar length in microns; if omitted, auto-choose')
+    ap.add_argument("--pixel-size-um", type=float, required=True, help="Pixel size in microns (width=height)")
+    ap.add_argument("--bar-um", type=float, default=None, help="Optional fixed scalebar length in microns; if omitted, auto-choose")
 
     # Output quality
-    ap.add_argument('--dpi', type=int, default=600, help='PNG resolution (dots per inch)')
-    ap.add_argument('--figsize-in', type=float, default=5.0, help='Per-image figure size in inches (square)')
-    ap.add_argument('--save-svg', action='store_true', help='Also save vector SVG alongside PNGs')
-    ap.add_argument('--save-pdf', action='store_true', help='Also save vector PDF alongside PNGs')
+    ap.add_argument("--dpi", type=int, default=600, help="PNG resolution (dots per inch)")
+    ap.add_argument("--figsize-in", type=float, default=5.0, help="Per-image figure size in inches (square)")
+    ap.add_argument("--save-svg", action="store_true", help="Also save vector SVG alongside PNGs")
+    ap.add_argument("--save-pdf", action="store_true", help="Also save vector PDF alongside PNGs")
 
     # Summary options
-    ap.add_argument('--no-summary', action='store_true', help='Disable saving the 2x2 summary SVG for frames')
-    ap.add_argument('--summary-frame', choices=['0', 'N'], default='N', help='Which frame to show in summary (0 or N)')
-    ap.add_argument('--summary-svg-name', default=None, help='Filename for the frame summary SVG (default auto)')
-    ap.add_argument('--summary-figsize-in', type=float, default=7.0, help='Summary figure size in inches (square)')
+    ap.add_argument("--no-summary", action="store_true", help="Disable saving the 2x2 summary SVG for frames")
+    ap.add_argument("--summary-frame", choices=["0", "N"], default="N", help="Which frame to show in summary (0 or N)")
+    ap.add_argument("--summary-svg-name", default=None, help="Filename for the frame summary SVG (default auto)")
+    ap.add_argument("--summary-figsize-in", type=float, default=7.0, help="Summary figure size in inches (square)")
 
     # Diff summary options
-    ap.add_argument('--no-diff-summary', action='store_true', help='Disable saving the 2x2 signed diff summary SVG')
-    ap.add_argument('--diff-summary-scale', choices=['perpanel', 'global'], default='perpanel',
-                    help='Color scaling for signed diff summary')
-    ap.add_argument('--diff-summary-mode', choices=['temporal', 'vsraw'], default='temporal',
-                    help='Use temporal (frame0−frameN) or per-frame method-vs-raw differences')
-    ap.add_argument('--diff-summary-vmax', type=float, default=None,
-                    help='Override vmax for signed diffs (data units). If set, used for all panels.')
+    ap.add_argument("--no-diff-summary", action="store_true", help="Disable saving the 2x2 signed diff summary SVG")
+    ap.add_argument("--diff-summary-scale", choices=["perpanel", "global"], default="perpanel",
+                    help="Color scaling for signed diff summary")
+    ap.add_argument("--diff-summary-mode", choices=["temporal", "vsraw"], default="temporal",
+                    help="Use temporal (frame0−frameN) or per-frame method-vs-raw differences")
+    ap.add_argument("--diff-summary-vmax", type=float, default=None,
+                    help="Override vmax for signed diffs (data units). If set, used for all panels.")
     return ap.parse_args()
 
 
@@ -497,21 +493,21 @@ def main():
     Ht, Wt = raw_frames[0].shape
 
     # Save RAW
-    raw_out = os.path.join(base_out, 'raw')
+    raw_out = os.path.join(base_out, "raw")
     ensure_dir(raw_out)
-    save_npy_png_bar(raw_frames[0], os.path.join(raw_out, 'frame_000.npy'), os.path.join(raw_out, 'frame_000.png'),
+    save_npy_png_bar(raw_frames[0], os.path.join(raw_out, "frame_000.npy"), os.path.join(raw_out, "frame_000.png"),
                      pixel_size_um=args.pixel_size_um, bar_um=args.bar_um,
                      dpi=args.dpi, figsize_in=args.figsize_in, save_svg=args.save_svg, save_pdf=args.save_pdf)
-    save_npy_png_bar(raw_frames[1], os.path.join(raw_out, f'frame_{args.frame_2:03d}.npy'),
-                     os.path.join(raw_out, f'frame_{args.frame_2:03d}.png'),
+    save_npy_png_bar(raw_frames[1], os.path.join(raw_out, f"frame_{args.frame_2:03d}.npy"),
+                     os.path.join(raw_out, f"frame_{args.frame_2:03d}.png"),
                      pixel_size_um=args.pixel_size_um, bar_um=args.bar_um,
                      dpi=args.dpi, figsize_in=args.figsize_in, save_svg=args.save_svg, save_pdf=args.save_pdf)
-    save_diff_images_bar(raw_frames[0], raw_frames[1], raw_out, prefix='raw',
+    save_diff_images_bar(raw_frames[0], raw_frames[1], raw_out, prefix="raw",
                          pixel_size_um=args.pixel_size_um, bar_um=args.bar_um,
                          dpi=args.dpi, figsize_in=args.figsize_in, save_svg=args.save_svg, save_pdf=args.save_pdf)
 
     # Discover runs and select one per group
-    selected: Dict[str, str] = {}
+    selected: dict[str, str] = {}
     for g in args.groups:
         run_dirs = discover_runs(args.runs_root, g, args.experiment, args.category, args.video_id)
         pick = pick_run(run_dirs, args.select, args.metric_mode)
@@ -522,7 +518,7 @@ def main():
         print(f"{g}: using {os.path.basename(pick)}")
 
     # For each method, load frames, resize to RAW for visualization, and save
-    methods_aligned: Dict[str, List[np.ndarray]] = {}
+    methods_aligned: dict[str, list[np.ndarray]] = {}
     for g, rundir in selected.items():
         art = find_artifact(rundir, args.artifact_glob, args.artifact_json_key)
         if art is None:
@@ -535,11 +531,11 @@ def main():
 
         out_dir = os.path.join(base_out, g)
         ensure_dir(out_dir)
-        save_npy_png_bar(frs[0], os.path.join(out_dir, 'frame_000.npy'), os.path.join(out_dir, 'frame_000.png'),
+        save_npy_png_bar(frs[0], os.path.join(out_dir, "frame_000.npy"), os.path.join(out_dir, "frame_000.png"),
                          pixel_size_um=args.pixel_size_um, bar_um=args.bar_um,
                          dpi=args.dpi, figsize_in=args.figsize_in, save_svg=args.save_svg, save_pdf=args.save_pdf)
-        save_npy_png_bar(frs[1], os.path.join(out_dir, f'frame_{args.frame_2:03d}.npy'),
-                         os.path.join(out_dir, f'frame_{args.frame_2:03d}.png'),
+        save_npy_png_bar(frs[1], os.path.join(out_dir, f"frame_{args.frame_2:03d}.npy"),
+                         os.path.join(out_dir, f"frame_{args.frame_2:03d}.png"),
                          pixel_size_um=args.pixel_size_um, bar_um=args.bar_um,
                          dpi=args.dpi, figsize_in=args.figsize_in, save_svg=args.save_svg, save_pdf=args.save_pdf)
         save_diff_images_bar(frs[0], frs[1], out_dir, prefix=g,
@@ -549,12 +545,12 @@ def main():
 
     # Build summary of images (2x2)
     if not args.no_summary:
-        frame_idx = 0 if args.summary_frame == '0' else 1
+        frame_idx = 0 if args.summary_frame == "0" else 1
         images_for_summary = {
-            'raw': raw_frames[frame_idx],
-            'ants': methods_aligned.get('ants', [None, None])[frame_idx] if 'ants' in methods_aligned else None,
-            'cotracker': methods_aligned.get('cotracker', [None, None])[frame_idx] if 'cotracker' in methods_aligned else None,
-            'normcorre': methods_aligned.get('normcorre', [None, None])[frame_idx] if 'normcorre' in methods_aligned else None,
+            "raw": raw_frames[frame_idx],
+            "ants": methods_aligned.get("ants", [None, None])[frame_idx] if "ants" in methods_aligned else None,
+            "cotracker": methods_aligned.get("cotracker", [None, None])[frame_idx] if "cotracker" in methods_aligned else None,
+            "normcorre": methods_aligned.get("normcorre", [None, None])[frame_idx] if "normcorre" in methods_aligned else None,
         }
         svg_name = args.summary_svg_name or f"summary_frame{'0' if frame_idx == 0 else 'N'}.svg"
         out_svg = os.path.join(base_out, svg_name)
@@ -566,16 +562,16 @@ def main():
     # Signed differences summary (2x2)
     if not args.no_diff_summary:
         frames0 = {
-            'raw': raw_frames[0],
-            'ants': methods_aligned.get('ants', [None, None])[0] if 'ants' in methods_aligned else None,
-            'cotracker': methods_aligned.get('cotracker', [None, None])[0] if 'cotracker' in methods_aligned else None,
-            'normcorre': methods_aligned.get('normcorre', [None, None])[0] if 'normcorre' in methods_aligned else None,
+            "raw": raw_frames[0],
+            "ants": methods_aligned.get("ants", [None, None])[0] if "ants" in methods_aligned else None,
+            "cotracker": methods_aligned.get("cotracker", [None, None])[0] if "cotracker" in methods_aligned else None,
+            "normcorre": methods_aligned.get("normcorre", [None, None])[0] if "normcorre" in methods_aligned else None,
         }
         framesN = {
-            'raw': raw_frames[1],
-            'ants': methods_aligned.get('ants', [None, None])[1] if 'ants' in methods_aligned else None,
-            'cotracker': methods_aligned.get('cotracker', [None, None])[1] if 'cotracker' in methods_aligned else None,
-            'normcorre': methods_aligned.get('normcorre', [None, None])[1] if 'normcorre' in methods_aligned else None,
+            "raw": raw_frames[1],
+            "ants": methods_aligned.get("ants", [None, None])[1] if "ants" in methods_aligned else None,
+            "cotracker": methods_aligned.get("cotracker", [None, None])[1] if "cotracker" in methods_aligned else None,
+            "normcorre": methods_aligned.get("normcorre", [None, None])[1] if "normcorre" in methods_aligned else None,
         }
         out_svg_diff = os.path.join(base_out, f"summary_diffs_signed_{args.diff_summary_mode}_{args.diff_summary_scale}.svg")
         save_summary_grid_signed_diffs(
@@ -583,12 +579,12 @@ def main():
             pixel_size_um=args.pixel_size_um, bar_um=args.bar_um,
             figsize_in=args.summary_figsize_in,
             scale=args.diff_summary_scale, mode=args.diff_summary_mode,
-            vmax_fixed=args.diff_summary_vmax
+            vmax_fixed=args.diff_summary_vmax,
         )
         print("Saved summary signed-diff SVG:", out_svg_diff)
 
     print("Done. Check:", base_out)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

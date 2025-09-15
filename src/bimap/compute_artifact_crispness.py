@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-compute_artifact_crispness_normcorre.py
+"""compute_artifact_crispness_normcorre.py
 
 Traverse only:
   output/normcorre/<experiment>/<category>/<video_id>/run_<id>/
@@ -22,17 +21,18 @@ Saves:
 Notes:
   - Uses from utils import load_video, crispness
   - Robustly resolves config.json["data"]["path"] relative to the project root (parent of 'output/').
+
 """
 
 from __future__ import annotations
-import argparse, json
+
+import argparse
+import json
 from pathlib import Path
-from typing import List, Optional, Dict, Tuple
 
 import numpy as np
 import pandas as pd
-
-from utils import load_video, crispness  # <- your loader + metric
+from utils import crispness, load_video  # <- your loader + metric
 
 VID_EXTS = (".mp4", ".mov", ".avi", ".mkv", ".webm", ".tif", ".tiff")
 SKIP_NAME = "video.mp4"
@@ -62,8 +62,7 @@ def squeeze_keep_3d4d(arr: np.ndarray) -> np.ndarray:
     return a
 
 def normalize_video_shape(arr: np.ndarray) -> np.ndarray:
-    """
-    Normalize to (T,H,W) or (T,H,W,C).
+    """Normalize to (T,H,W) or (T,H,W,C).
     Accepts common layouts: (1,T,H,W), (H,W,T), (T,C,H,W), (C,T,H,W), (H,W,T,C), (C,H,W,T), etc.
     """
     a = squeeze_keep_3d4d(np.asarray(arr))
@@ -109,8 +108,7 @@ def channels_equal(img: np.ndarray, atol: float = 1e-8) -> bool:
     return np.allclose(c0, img[..., 1], atol=atol, rtol=0.0) and np.allclose(c0, img[..., 2], atol=atol, rtol=0.0)
 
 def collapse_rgb_grayscale(vol: np.ndarray) -> np.ndarray:
-    """
-    If the video is grayscale but saved as RGB (all channels equal), collapse to single channel.
+    """If the video is grayscale but saved as RGB (all channels equal), collapse to single channel.
     Checks a few frames for speed.
     """
     if vol.ndim == 4 and vol.shape[-1] >= 3:
@@ -122,7 +120,7 @@ def collapse_rgb_grayscale(vol: np.ndarray) -> np.ndarray:
         return vol[..., 0]
     return vol
 
-def ensure_channel_compat(a: np.ndarray, b: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+def ensure_channel_compat(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Match channel counts between two frames; tile single-channel to multi if needed."""
     if a.ndim == 2 and b.ndim == 2:
         return a, b
@@ -138,7 +136,7 @@ def ensure_channel_compat(a: np.ndarray, b: np.ndarray) -> Tuple[np.ndarray, np.
         return a, np.repeat(b[..., None], a.shape[-1], axis=-1)
     return np.squeeze(a), np.squeeze(b)
 
-def center_crop_to_match(a: np.ndarray, b: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+def center_crop_to_match(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Center-crop two frames to the same (H,W)."""
     def hw(x):
         x = np.squeeze(x)
@@ -159,18 +157,18 @@ def crop_video_to_common(vol: np.ndarray) -> np.ndarray:
         Hs = [vol[t].shape[0] for t in range(T)]
         Ws = [vol[t].shape[1] for t in range(T)]
         H, W = min(Hs), min(Ws)
-        if all(h == H and w == W for h, w in zip(Hs, Ws)): return vol
+        if all(h == H and w == W for h, w in zip(Hs, Ws, strict=False)): return vol
         out = np.empty((T, H, W, vol.shape[-1]), dtype=vol.dtype)
         for t in range(T):
             f = vol[t]; hh, ww = f.shape[0], f.shape[1]
             top = (hh - H) // 2; left = (ww - W) // 2
             out[t] = f[top:top+H, left:left+W, :]
         return out
-    elif vol.ndim == 3:
+    if vol.ndim == 3:
         Hs = [vol[t].shape[0] for t in range(T)]
         Ws = [vol[t].shape[1] for t in range(T)]
         H, W = min(Hs), min(Ws)
-        if all(h == H and w == W for h, w in zip(Hs, Ws)): return vol
+        if all(h == H and w == W for h, w in zip(Hs, Ws, strict=False)): return vol
         out = np.empty((T, H, W), dtype=vol.dtype)
         for t in range(T):
             f = vol[t]; hh, ww = f.shape[0], f.shape[1]
@@ -205,9 +203,8 @@ def _sanitize_spec(spec: str) -> str:
         s = s.replace("//", "/")
     return s
 
-def resolve_data_path(run_dir: Path, data_path: str, verbose: bool = False) -> Optional[Path]:
-    """
-    Resolve config['data']['path'] relative to:
+def resolve_data_path(run_dir: Path, data_path: str, verbose: bool = False) -> Path | None:
+    """Resolve config['data']['path'] relative to:
       - run_dir
       - output_root (run_dir.parents[4])
       - project_root (parent of output_root)
@@ -234,9 +231,9 @@ def resolve_data_path(run_dir: Path, data_path: str, verbose: bool = False) -> O
         output_root = run_dir
         project_root = run_dir.parent
 
-    tried: List[Path] = []
+    tried: list[Path] = []
 
-    def try_path(base: Path, extra: str | Path) -> Optional[Path]:
+    def try_path(base: Path, extra: str | Path) -> Path | None:
         cand = (base / extra).resolve()
         tried.append(cand)
         return cand if cand.exists() else None
@@ -276,7 +273,7 @@ def resolve_data_path(run_dir: Path, data_path: str, verbose: bool = False) -> O
 
 # ---------------- per-artifact processing ---------------- #
 
-def process_one_artifact(run_dir: Path, art_path: Path, verbose: bool = False) -> Optional[Dict]:
+def process_one_artifact(run_dir: Path, art_path: Path, verbose: bool = False) -> dict | None:
     # Load artifact
     try:
         art_vid, _, _ = load_video(str(art_path))
@@ -347,7 +344,7 @@ def process_one_artifact(run_dir: Path, art_path: Path, verbose: bool = False) -
     per_frame.to_csv(run_dir / f"per_frame_crispness_{safe}.csv", index=False)
 
     # Summaries
-    def summarize(vals: List[float]) -> Tuple[float, float]:
+    def summarize(vals: list[float]) -> tuple[float, float]:
         arr = np.asarray(vals, dtype=np.float64)
         arr = arr[np.isfinite(arr)]
         return (float(arr.mean()), float(arr.std(ddof=0))) if arr.size else (float("nan"), float("nan"))
@@ -375,8 +372,8 @@ def process_one_artifact(run_dir: Path, art_path: Path, verbose: bool = False) -
 
 # ---------------- traversal ---------------- #
 
-def find_normcorre_runs(root: Path) -> List[Path]:
-    runs: List[Path] = []
+def find_normcorre_runs(root: Path) -> list[Path]:
+    runs: list[Path] = []
     norm_root = root / "normcorre"
     if not norm_root.exists(): return runs
     for exp in sorted([p for p in norm_root.iterdir() if p.is_dir()]):
@@ -386,7 +383,7 @@ def find_normcorre_runs(root: Path) -> List[Path]:
                     if run.is_dir(): runs.append(run)
     return runs
 
-def list_artifacts(run_dir: Path) -> List[Path]:
+def list_artifacts(run_dir: Path) -> list[Path]:
     arts = run_dir / "artifacts"
     if not arts.exists(): return []
     vids = [p for p in arts.iterdir() if p.suffix.lower() in VID_EXTS]
@@ -424,7 +421,7 @@ def main():
                 "category": run_dir.parents[2].name,
                 "video_id": run_dir.parents[1].name,
                 "run_id": run_dir.name,
-                **res
+                **res,
             }
             per_run_rows.append(row)
             global_rows.append({**row, "run_dir": str(run_dir)})
