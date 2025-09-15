@@ -9,7 +9,7 @@ import torch_lddmm
 from utils import evaluate, find_highest_correlation, load_video, save_and_display_video
 
 
-class LDDMMParams(TypedDict):
+class LDDMMParams(TypedDict, total=False):
     """Changeable Parameters for LDDMM registration."""
 
     a: int
