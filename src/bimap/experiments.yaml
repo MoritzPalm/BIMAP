@@ -37,7 +37,7 @@ datasets:
       path: ../../data/input/strong_movement/b8czi.tif
       category: strong
     - id: v13
-      path: ../../data/input/strong_movement/Experiment-583czi.tif
+      path: ../../data/input/strong_movement/Eperiment-583czi.tif
       category: strong
     - id: v14
       path: ../../data/input/strong_movement/Experiment-591czi.tif
