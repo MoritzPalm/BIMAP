@@ -64,7 +64,18 @@ def evaluate(corrected_images: np.array, images, template: np.ndarray) -> dict:
     crispness_before = crispness(summary_image_before)
     crispness_after = crispness(summary_image_after)
     crispness_improvement = float(crispness_after - crispness_before)
-    results = {"ssims": ssim_list, "mse_list": mse_list, "crispness_improvement": crispness_improvement}
+    crispness_pct_improvement = crispness_improvement / crispness_before * 100
+    corrs_list = []
+    for corrected_image in corrected_images:
+        corrs_list.append(np.corrcoef(corrected_image.flatten(), summary_image_after)[0,1])
+    results = {"ssims": ssim_list,
+               "mse_list": mse_list,
+               "corrs_list": corrs_list,
+               "crispness_before": crispness_before,
+               "crispness_after": crispness_after,
+               "crispness_improvement": crispness_improvement,
+               "crispness_pct_improvement": crispness_pct_improvement,
+               }
     return results
 
 
@@ -195,9 +206,11 @@ def load_video(path, len=-1, gaussian_filtered=False):
     video = torch.from_numpy(np.expand_dims(video.astype(np.float32), axis=0)).float()
     if len != -1:
         frames = frames[:len]
-    video = torch.from_numpy(np.expand_dims(video, axis=0)).float()
+    #video = torch.from_numpy(video).float()
+    if video.ndim == 4:
+        video = torch.from_numpy(np.expand_dims(video, axis=0)).float()
     video = video.permute(0, 2, 1, 3, 4).repeat(1, 1, 3, 1, 1).to(device)[:,:len,:,:,:]
-    return video, frames, filename
+    return np.array(video), frames, filename
 
 def get_all_paths(input_folder) -> list:
     p = Path(input_folder)
