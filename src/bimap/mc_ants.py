@@ -8,6 +8,10 @@ from utils import load_video, save_and_display_video, find_highest_correlation, 
 
 
 def main():
+    """
+    this function is only used for local testing purposes,
+    you probably want to use the run() function
+    """
     path = "../../data/input/strong_movement/b5czi.tif"
     video, frames, filename = load_video(path, len=10)
     #template_idx = find_highest_correlation(frames)
@@ -16,6 +20,18 @@ def main():
 
 
 def run(config: dict):
+    """
+    main entrypoint to run the ANTs image registration
+    :param config: configuration dictionary with the following fields:
+        data: path: path to the input video
+        run:
+            artifacts_dir: directory to save output artifacts
+        method: (optional) method used for registration, default is "SyNOnly"
+        template_strategy: (optional) strategy to select the template frame,
+                            either "first" or "computed", default is "first"
+        gaussian_filtered: (optional) whether to apply Gaussian filtering
+    :return: dictionary with results and metrics
+    """
     path = config["data"]["path"]
     output_path = config["run"]["artifacts_dir"]
     method = config.get("method", None)
