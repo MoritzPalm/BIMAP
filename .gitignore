@@ -4,3 +4,11 @@ data
 .ipynb_checkpoints
 .idea
 .venv
+
+#output formats
+*.png
+*.svg
+*.npy
+*.pdf
+*.mp4
+*.pdf_tex
