@@ -11,12 +11,14 @@ from PIL import Image
 from scipy.ndimage import gaussian_filter, sobel
 from skimage.metrics import structural_similarity as ssim
 
-#pth = Path("../../data/low_movement/Experiment-746czi")
 pth =  Path("../../data/input/strong_movement/Experiment-591czi")
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 def load_example_experiment() -> list[np.ndarray]:
-    """Load Experiment-746czi."""
+    """Load example experiment using the global example path.
+
+    :return: list of 2D numpy arrays representing the video frames
+    """
     pattern = r"frame_*.tif"
     frame_paths = list(pth.glob(pattern))
     if not frame_paths:
@@ -26,22 +28,34 @@ def load_example_experiment() -> list[np.ndarray]:
 
 
 def handle_raw_image(path: Path) -> np.ndarray:
-    """Load image from path and convert from <u2 to float32 format."""
+    """Load image from path and convert from <u2 to float32 format.
+
+    :param path: path to the image file
+    :return: image as a float32 numpy array with values in [0, 1]
+    """
     image = Image.open(path.as_posix())
     arr = np.array(image).byteswap().newbyteorder()
-    arr_f32 = arr.astype(np.float32) / 65535.0
-    return arr_f32
+    return arr.astype(np.float32) / 65535.0
 
 
 def get_magnitude(img: np.array) -> np.array:
-    """Calculate the magnitude of the gradient of the image using sobel filters."""
+    """Calculate the magnitude of the gradient of the image using sobel filters.
+
+    :param img: 2D numpy array representing the image
+    :return: 2D numpy array representing the magnitude of the gradient
+    """
     g_x = sobel(img, axis=0)
     g_y = sobel(img, axis=1)
     return np.sqrt((g_x**2) + (g_y**2))
 
 
 def find_highest_correlation(frame_stack: list[np.ndarray], *, plot: bool=False) -> int:
-    """Find frame with maximum correlation to previous frame."""
+    """Find frame with maximum correlation to previous frame.
+
+    :param frame_stack: list of 2D numpy arrays representing the video frames
+    :param plot: whether to plot the correlation values
+    :return: index of the frame with the highest correlation to the previous frame
+    """
     corrs = []
     for i in range(len(frame_stack)-1):
         corr = np.corrcoef(frame_stack[i].flatten(), frame_stack[i+1].flatten())[0,1]
@@ -55,9 +69,17 @@ def find_highest_correlation(frame_stack: list[np.ndarray], *, plot: bool=False)
     return max_idx
 
 
-def evaluate(corrected_images: np.array, images, template: np.ndarray) -> dict:
-    """Evaluate the image registration based on the SSIM of the gradient image."""
-    ssim_list = [float(ssim(template, moving, data_range=template.max() - template.min())) for moving in corrected_images]
+def evaluate(corrected_images: np.array, images: list[np.array], template: np.ndarray) -> dict:
+    """Evaluate the image registration based on the SSIM of the gradient image.
+
+    :param corrected_images: list of 2D numpy arrays representing the motion corrected frames
+    :param images: list of 2D numpy arrays representing the original video frames
+    :param template: 2D numpy array representing the template frame
+    :return: dictionary with evaluation metrics
+    """
+    ssim_list = [float(ssim(template, moving,
+                            data_range=template.max() - template.min()))
+                 for moving in corrected_images]
     mse_list = [float(quantized_mse(template, moving)) for moving in corrected_images]
     summary_image_before = np.mean(images, axis=0)
     summary_image_after = np.mean(corrected_images, axis=0)
@@ -68,7 +90,7 @@ def evaluate(corrected_images: np.array, images, template: np.ndarray) -> dict:
     corrs_list = []
     for corrected_image in corrected_images:
         corrs_list.append(np.corrcoef(corrected_image.flatten(), summary_image_after)[0,1])
-    results = {"ssims": ssim_list,
+    return {"ssims": ssim_list,
                "mse_list": mse_list,
                "corrs_list": corrs_list,
                "crispness_before": crispness_before,
@@ -76,23 +98,35 @@ def evaluate(corrected_images: np.array, images, template: np.ndarray) -> dict:
                "crispness_improvement": crispness_improvement,
                "crispness_pct_improvement": crispness_pct_improvement,
                }
-    return results
 
 
 def float32_to_uint8(image: np.ndarray) -> np.ndarray:
-    """Convert float23 image type to uint8 image type."""
+    """Convert float23 image type to uint8 image type.
+
+    :param image: input image as a float32 numpy array
+    :return: image as a uint8 numpy array
+    """
     min_val, max_val = image.min(), image.max()
     return ((image - min_val) / (max_val - min_val) * 255.0).astype(np.uint8)
 
 
 def uint8_to_float32(image: np.ndarray) -> np.ndarray:
-    """Convert uint8 image type to float23 image type."""
+    """Convert uint8 image type to float23 image type.
+
+    :param image: input image as a uint8 numpy array
+    :return: image as a float32 numpy array
+    """
     image = image.astype(np.float32)
     return image / 255.0
 
 
 def save_results(corrected_images: list[np.ndarray], path: Path, method: str) -> None:
-    """Save the results of the image registration."""
+    """Save the results of the image registration.
+
+    :param corrected_images: list of 2D numpy arrays representing the motion corrected frames
+    :param path: path to the directory where the results will be saved
+    :param method: name of the registration method used
+    """
     save_path = path / (method + "_results")
     Path.mkdir(save_path, parents=True, exist_ok=True)
     for i, img in enumerate(corrected_images):
@@ -100,20 +134,38 @@ def save_results(corrected_images: list[np.ndarray], path: Path, method: str) ->
         filename = save_path / f"corrected_{i}.tif"
         image.save(filename)
 
-def denoise_video(video: torch.Tensor, sigma=1) -> torch.Tensor:
+def denoise_video(video: torch.Tensor, sigma: int=1) -> torch.Tensor:
+    """Apply Gaussian filter to each frame in the video tensor.
+
+    :param video: 4D torch tensor representing the video (T, H, W, C)
+    :param sigma: standard deviation for Gaussian kernel
+    :return: 4D torch tensor representing the denoised video
+    """
     filtered = np.empty_like(video)
     for t in range(video.shape[0]):
         filtered[t] = gaussian_filter(video[t], sigma=sigma)
     return filtered
 
 
-def denoise_stack(imgs: list[np.ndarray], sigma=1) -> list[np.ndarray]:
+def denoise_stack(imgs: list[np.ndarray], sigma: int=1) -> list[np.ndarray]:
+    """Apply Gaussian filter to each image in the stack.
+
+    :param imgs: list of 2D numpy arrays representing the video frames
+    :param sigma: standard deviation for Gaussian kernel
+    :return: list of 2D numpy arrays representing the denoised frames
+    """
     for i in range(len(imgs)):
          imgs[i] = gaussian_filter(imgs[i], sigma=sigma)
     return imgs
 
 
-def save_and_display_video(array, filename="output.mp4", fps=30):
+def save_and_display_video(array: np.ndarray, filename: str="output.mp4", fps: int=30) -> None:
+    """Save a numpy array as a video file using OpenCV.
+
+    :param array (np.ndarray): 3D numpy array of shape (num_frames, height, width)
+    :param filename (str): output video file name
+    :param fps (int): frames per second for the output video
+    """
     num_frames, height, width = array.shape
 
     # Normalize and convert to uint8 if needed
@@ -133,19 +185,17 @@ def save_and_display_video(array, filename="output.mp4", fps=30):
         out.write(frame)
 
     out.release()
-    print(f"Video saved to {filename}")
 
-def quantize_image(image, method="percentile", thresholds=None):
-    """Quantize a calcium imaging frame into 3 levels:
-    0 - background, 1 - base, 2 - high activity
 
-    params:
-        image (np.ndarray): 2D image
-        method (str): 'percentile' or 'manual'
-        thresholds (tuple): if method='manual', provide (low_thresh, high_thresh)
+def quantize_image(image: np.ndarray, method: str="percentile",
+                   thresholds: tuple[float, float]|None=None) -> np.ndarray:
+    """Quantize a calcium imaging frame into 3 levels: 0 - background, 1 - base, 2 - high activity.
 
-    Returns:
-        np.ndarray: quantized image with values 0, 1, 2
+    :param image (np.ndarray): 2D image
+    :param method (str): 'percentile' or 'manual'
+    :param thresholds (tuple): if method='manual', provide (low_thresh, high_thresh)
+
+    :return: np.ndarray: quantized image with values 0, 1, 2
 
     """
     if method == "percentile":
@@ -162,35 +212,43 @@ def quantize_image(image, method="percentile", thresholds=None):
 
     return quantized
 
-def quantized_mse(image1, image2, method="percentile", thresholds=None):
+def quantized_mse(image1: np.ndarray, image2: np.ndarray, method: str="percentile",
+                  thresholds: tuple[float, float]|None=None) -> float:
     """Compute MSE between two quantized calcium imaging frames.
 
-    params:
-        image1 (np.ndarray): reference frame
-        image2 (np.ndarray): registered frame
-        method (str): quantization method
-        thresholds (tuple): manual threshold values if used
+    :param image1 (np.ndarray): reference frame
+    :param image2 (np.ndarray): registered frame
+    :param method (str): quantization method
+    :param thresholds (tuple): manual threshold values if used
 
-    Returns:
-        float: mean squared error between quantized images
+    :return (float): mean squared error between quantized images
 
     """
     q1 = quantize_image(image1, method=method, thresholds=thresholds)
     q2 = quantize_image(image2, method=method, thresholds=thresholds)
-    mse = np.mean((q1 - q2) ** 2)
-    return mse
+    return np.mean((q1 - q2) ** 2)
 
 
-def crispness(image):
-    """Calculates the crispness value, intended to be used on a summary image before and after registration.
+def crispness(image: np.ndarray) -> float:
+    """Calculate the crispness value, intended to be used on a summary image before and after registration.
+
+    :param image: 2D numpy array representing the image
+    :return: float representing the crispness value
     """
     gradient = get_magnitude(image)
     abs_gradient = np.abs(gradient)
-    norm = np.linalg.norm(abs_gradient, ord="fro")
-    return norm
+    return np.linalg.norm(abs_gradient, ord="fro")
 
 
-def load_video(path, len=-1, gaussian_filtered=False):
+def load_video(path: str, length: int=-1,
+               gaussian_filtered: bool=False) -> tuple[np.ndarray, np.ndarray, str]:
+    """Load video from path and optionally apply Gaussian filtering.
+
+    :param path: path to the video file
+    :param length: number of frames to load, -1 to load all frames
+    :param gaussian_filtered: whether to apply Gaussian filtering to each frame
+    :return: tuple of (video tensor, frames as numpy array, filename without extension)
+    """
     filename = Path(path).stem
     video = read_video_from_path(path)
     if video is None:
@@ -205,15 +263,17 @@ def load_video(path, len=-1, gaussian_filtered=False):
     video = torch.from_numpy(np.expand_dims(video.astype(np.float32), axis=0)).float()
     if len != -1:
         frames = frames[:len]
-    #video = torch.from_numpy(video).float()
-    if video.ndim == 4:
+    if video.ndim == 4: # TODO: check dimensions
         video = torch.from_numpy(np.expand_dims(video, axis=0)).float()
-    video = video.permute(0, 2, 1, 3, 4).repeat(1, 1, 3, 1, 1).to(device)[:,:len,:,:,:]
+    video = video.permute(0, 2, 1, 3, 4).repeat(1, 1, 3, 1, 1).to(device)[:,:length,:,:,:]
     return np.array(video), frames, filename
 
-def get_all_paths(input_folder) -> list:
+def get_all_paths(input_folder: str) -> list:
+    """Get all .tif file paths in the input folder and its subfolders.
+
+    :param input_folder: path to the input folder
+    :return: list of file paths
+    """
     p = Path(input_folder)
     paths = list(p.rglob("*.tif"))
-    file_paths = [p for p in paths if p.is_file()]
-    return file_paths
-
+    return [p for p in paths if p.is_file()]
