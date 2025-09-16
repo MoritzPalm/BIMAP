@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = [{name="Moritz Palm", email="moritz.palm@fau.de"}]
 description = "Nonrigid Image Segmentation for Calcium Imaging Data"
 readme = "README.md"
-license = "GPL-3.0-only"
+license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
     "antspyx>=0.5.3",
