@@ -55,7 +55,7 @@ extend-exclude = ["torch_lddmm.py", "co-tracker", "CaImAn", "src/notebooks"]
 
 [tool.ruff.lint]
 select = ["ALL"]
-ignore = ["D203", "D213"]
+ignore = ["D203", "D213", "TRY003", "EM101", "EM102" ]
 
 [tool.ruff.lint.per-file-ignores]
 "*.ipynb" = ["T201"]

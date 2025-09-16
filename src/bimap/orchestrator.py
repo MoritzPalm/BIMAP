@@ -1,34 +1,49 @@
-#!/usr/bin/env python3
+"""Orchestrator for running experiments on datasets with different configurations."""
 from __future__ import annotations
 
 import argparse
+import glob as _glob
 import importlib
 import itertools
 import json
+import logging
 import multiprocessing as mp
 import os
 import socket
 import sys
 import traceback
+import typing
 import uuid
+
+if typing.TYPE_CHECKING:
+    from collections.abc import Generator
 from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import yaml
+
+logger = logging.getLogger(__name__)
 
 
 # ---------- utils ----------
 def now_iso() -> str:
+    """Get current time in ISO format with timezone (UTC)."""
     return datetime.now(UTC).isoformat()
 
-def load_yaml(path: str):
-    import yaml  # pip install pyyaml
-    with open(path) as f:
+def load_yaml(path: str) -> dict:
+    """Load a YAML file and return its contents as a dictionary."""
+    with Path.open(path) as f:
         return yaml.safe_load(f)
 
-def cartesian(params: dict):
+def cartesian(params: dict) -> Generator[dict]:
+    """Generate the cartesian product of parameter combinations.
+
+    :param params: dictionary where keys are parameter names and values are either single values or lists of values
+    :yield: dictionaries representing each combination of parameters
+    """
     if not params:
         yield {}
         return
@@ -38,25 +53,46 @@ def cartesian(params: dict):
         yield dict(zip(keys, combo, strict=False))
 
 def parse_module_map(s: str) -> dict:
+    """Parse a module mapping string into a dictionary.
+
+    :param s: string in the format "name1=module1,name2=module2,..."
+    :return: dictionary mapping names to modules
+    :raises ValueError: if the input string is malformed
+    """
     mapping = {}
-    if not s: return mapping
+    if not s:
+        return mapping
     for pair in s.split(","):
-        pair = pair.strip()
-        if not pair: continue
-        if "=" not in pair: raise ValueError(f"Bad module-map entry '{pair}' (want name=module)")
-        k, v = pair.split("=", 1)
+        stripped_pair = pair.strip()
+        if not stripped_pair:
+            continue
+        if "=" not in stripped_pair:
+            raise ValueError(f"Bad module-map entry '{stripped_pair}' (want name=module)")
+        k, v = stripped_pair.split("=", 1)
         mapping[k.strip()] = v.strip()
     return mapping
 
 def sanitize_slug(text: str) -> str:
+    """Sanitize a string to be used as a filesystem-friendly slug.
+
+    :param text: input string
+    :return: sanitized string with only alphanumeric characters, dashes, underscores, and dots
+    """
     s = "".join(c if c.isalnum() or c in "-_." else "_" for c in str(text))
     return s.strip("._") or "item"
 
 # ---------- dataset handling ----------
 def load_datasets_from_yaml(data: dict) -> list[dict]:
+    """Load dataset video information from a YAML configuration dictionary.
+
+    :param data: configuration dictionary
+    :return: list of video dictionaries with keys 'id', 'path', and optional 'category'
+    :raises TypeError: if the videos entry is not a list
+    :raises ValueError: if no videos are found
+    """
     vids = (((data or {}).get("datasets") or {}).get("videos")) or []
     if not isinstance(vids, list):
-        raise ValueError("'datasets.videos' must be a list of {id, path[, category]}.")
+        raise TypeError("'datasets.videos' must be a list of {id, path[, category]}.")
 
     out = []
     for v in vids:
@@ -73,9 +109,14 @@ def load_datasets_from_yaml(data: dict) -> list[dict]:
     return out
 
 def glob_videos(pattern: str) -> list[dict]:
+    """Find video files matching a glob pattern.
+
+    :param pattern: glob pattern to match video files
+    :return: list of video dictionaries with keys 'id' and 'path'
+    :raises ValueError: if no files match the pattern
+    """
     paths = sorted(Path(p).resolve() for p in map(str, Path().glob(pattern)) )
     # The above won't work for wildcards from CLI; do manual glob:
-    import glob as _glob
     paths = sorted(Path(p).resolve() for p in _glob.glob(pattern))
     out = [{"id": Path(p).stem, "path": str(p)} for p in paths]
     if not out:
@@ -84,6 +125,12 @@ def glob_videos(pattern: str) -> list[dict]:
 
 
 def load_videos_manifest_csv(csv_path: str) -> list[dict]:
+    """Load video information from a CSV manifest file.
+
+    :param csv_path: path to the CSV file
+    :return: list of video dictionaries with keys 'id', 'path', and optional 'category'
+    :raises ValueError: if the CSV is malformed or empty
+    """
     df = pd.read_csv(csv_path)
     if "path" not in df.columns:
         raise ValueError("CSV must include 'path' (optional 'id','category').")
@@ -96,7 +143,14 @@ def load_videos_manifest_csv(csv_path: str) -> list[dict]:
         raise ValueError("CSV manifest is empty.")
     return out
 
-def select_videos(all_videos: list[dict], selector) -> list[dict]:
+def select_videos(all_videos: list[dict], selector: str|list|dict) -> list[dict]:
+    """Select videos based on a selector.
+
+    :param all_videos: list of all available video dictionaries
+    :param selector: selection criteria, can be "*", list of ids, or dict with 'ids' and/or 'categories'
+    :return: list of selected video dictionaries
+    :raises ValueError: if the selector is invalid or matches no videos
+    """
     # selector can be: "*", ["id1","id2"], {ids:[...], categories:[...]}
     if selector in (None, "*", ["*"]):
         return all_videos
@@ -111,7 +165,7 @@ def select_videos(all_videos: list[dict], selector) -> list[dict]:
 
     if isinstance(selector, dict):
         ids = set(map(str, selector.get("ids", [])))
-        cats = set(map(str, selector.get("categories", []))) if "categories" in selector else cats
+        cats = set(map(str, selector.get("categories", [])))
 
         chosen = all_videos
         if cats:
@@ -124,37 +178,54 @@ def select_videos(all_videos: list[dict], selector) -> list[dict]:
         if not chosen:
             raise ValueError("Selection matched 0 videos.")
         return chosen
-
     raise ValueError(f"Unsupported data selector: {selector!r}")
 
 
 # ---------- schema expansion ----------
 def normalize_groups(data: dict) -> dict:
+    """Normalize and validate the 'groups' section of the configuration.
+
+    :param data: configuration dictionary
+    :return: normalized groups dictionary
+    :raises ValueError: if the groups section is malformed
+    """
     if "groups" not in data or not isinstance(data["groups"], dict):
         raise ValueError("Top-level 'groups' must be a mapping.")
     groups = {}
     for gname, g in data["groups"].items():
-        g = g or {}
-        exps = g.get("experiments", [])
-        if exps is None: exps = []
-        if not isinstance(exps, list): raise ValueError(f"'groups.{gname}.experiments' must be a list or [].")
+        group = g or {}
+        exps = group.get("experiments", [])
+        if exps is None:
+            exps = []
+        if not isinstance(exps, list):
+            raise TypeError(f"'groups.{gname}.experiments' must be a list or [].")
         groups[gname] = {
-            "module": g.get("module"),
-            "defaults": g.get("defaults", {}) or {},
+            "module": group.get("module"),
+            "defaults": group.get("defaults", {}) or {},
             "experiments": exps,
         }
     return groups
 
 def expand_global_experiments(data: dict, group_names: list[str]) -> list[dict]:
+    """Expand and validate the 'global_experiments' section of the configuration.
+
+    :param data: configuration dictionary
+    :param group_names: list of valid group names
+    :return: list of expanded global experiment dictionaries
+    :raises ValueError: if the global_experiments section is malformed
+    """
     ge_list = data.get("global_experiments", []) or []
     out = []
     for ge in ge_list:
         name = ge.get("name")
-        if not name: raise ValueError("Each global_experiment needs a 'name'.")
+        if not name:
+            raise ValueError("Each global_experiment needs a 'name'.")
         apply_to = ge.get("apply_to", "*")
-        if apply_to in ("*", ["*"]): targets = list(group_names)
+        if apply_to in ("*", ["*"]):
+            targets = list(group_names)
         else:
-            if not isinstance(apply_to, list): raise ValueError(f"'apply_to' of '{name}' must be list or '*'.")
+            if not isinstance(apply_to, list):
+                raise ValueError(f"'apply_to' of '{name}' must be list or '*'.")
             targets = apply_to
         out.append({
             "name": name,
@@ -166,11 +237,28 @@ def expand_global_experiments(data: dict, group_names: list[str]) -> list[dict]:
     return out
 
 def resolve_module_for_group(gname: str, ginfo: dict, module_map: dict) -> str:
-    if ginfo.get("module"): return ginfo["module"]
-    if gname in module_map: return module_map[gname]
+    """Determine the module to use for a given group.
+
+    :param gname: name of the group
+    :param ginfo: group information dictionary
+    :param module_map: mapping of group names to modules
+    :return: module name as a string
+    """
+    if ginfo.get("module"):
+        return ginfo["module"]
+    if gname in module_map:
+        return module_map[gname]
     return f"{gname}"
 
 def build_manifest(data: dict, module_map: dict, videos: list[dict]) -> list[dict]:
+    """Build the experiment manifest from the configuration, module map, and videos.
+
+    :param data: configuration dictionary
+    :param module_map: mapping of group names to modules
+    :param videos: list of video dictionaries
+    :return: list of experiment run dictionaries
+    :raises ValueError: if the configuration is malformed
+    """
     groups = normalize_groups(data)
     global_exps = expand_global_experiments(data, list(groups.keys()))
     manifest = []
@@ -181,7 +269,8 @@ def build_manifest(data: dict, module_map: dict, videos: list[dict]) -> list[dic
 
         # Local experiments
         for exp in g.get("experiments", []):
-            if "name" not in exp: raise ValueError(f"Experiment in group '{gname}' missing 'name'.")
+            if "name" not in exp:
+                raise ValueError(f"Experiment in group '{gname}' missing 'name'.")
             eparams = deepcopy(exp.get("params", {}))
             merged = {**g_default_params, **eparams}
             target_videos = select_videos(videos, exp.get("data", "*"))
@@ -194,7 +283,8 @@ def build_manifest(data: dict, module_map: dict, videos: list[dict]) -> list[dic
 
         # Global experiments
         for ge in global_exps:
-            if gname not in ge["targets"]: continue
+            if gname not in ge["targets"]:
+                continue
             merged = {**g_default_params, **(ge.get("params") or {})}
             over = (ge.get("per_group_overrides", {}) or {}).get(gname, {})
             merged = {**merged, **(over.get("params") or {})}
@@ -212,19 +302,34 @@ def build_manifest(data: dict, module_map: dict, videos: list[dict]) -> list[dic
 
 # ---------- result normalization ----------
 def compute_basic_summary(per_frame_df: pd.DataFrame) -> dict:
+    """Compute basic summary statistics (mean, std) for numeric columns in a per-frame DataFrame.
+
+    :param per_frame_df: DataFrame with per-frame metrics
+    :return: dictionary with summary statistics and number of frames
+    """
     out = {}
     for col in per_frame_df.columns:
-        if col == "frame_idx": continue
+        if col == "frame_idx":
+            continue
         try:
             if np.issubdtype(per_frame_df[col].dtype, np.number):
                 out[f"{col}_mean"] = float(per_frame_df[col].mean())
                 out[f"{col}_std"]  = float(per_frame_df[col].std(ddof=0))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.exception(f"Failed to compute basic summary for {col}: {e}")
     out["num_frames"] = len(per_frame_df)
     return out
 
-def normalize_result_structure(res: dict):
+def normalize_result_structure(res: dict) -> tuple[pd.DataFrame, dict, dict, float|None]:
+    """Normalize the result structure from an experiment run.
+
+    :param res: result dictionary from the experiment run
+    :return: tuple of (per_frame_df, summary, artifacts, runtime_s)
+        per_frame_df: DataFrame with per-frame metrics
+        summary: dictionary with summary metrics
+        artifacts: dictionary with artifact paths
+        runtime_s: runtime in seconds (or None if not available)
+    """
     if not isinstance(res, dict):
         return pd.DataFrame({"frame_idx": []}), {}, {}, None
     runtime_s = res.get("runtime_s")
@@ -242,53 +347,88 @@ def normalize_result_structure(res: dict):
         per_frame_df = pd.DataFrame(pf) if pf else pd.DataFrame({"frame_idx": []})
         summary = {}
     if "frame_idx" in per_frame_df.columns:
-        try: per_frame_df["frame_idx"] = per_frame_df["frame_idx"].astype(int)
-        except Exception: pass
+        try:
+            per_frame_df["frame_idx"] = per_frame_df["frame_idx"].astype(int)
+        except Exception:
+            logger.exception(f"Failed to compute frame index for {res}")
     if not summary and len(per_frame_df) > 0:
         summary = compute_basic_summary(per_frame_df)
     return per_frame_df, summary, artifacts, runtime_s
 
 # ---------- child process (sequential) ----------
-def _child_worker(module_name: str, cfg: dict, run_dir: str, ret_path: str):
+def _child_worker(module_name: str, cfg: dict, run_dir: str, ret_path: str) -> None:
+    """Worker function to run in a child process.
+
+    :param module_name: name of the module to import and run
+    :param cfg: configuration dictionary to pass to the module's run function
+    :param run_dir: directory to use for the run (will be created if it doesn't exist)
+    :param ret_path: path to write the result JSON file
+    :return: None (writes result to ret_path)
+    """
     run_dir_path = Path(run_dir)
+    run_dir_path.mkdir(parents=True, exist_ok=True)
+
     stdout_path = run_dir_path / "stdout.log"
     stderr_path = run_dir_path / "stderr.log"
+
     old_out, old_err = sys.stdout, sys.stderr
-    sys.stdout = open(stdout_path, "w")
-    sys.stderr = open(stderr_path, "w")
     try:
-        mod = importlib.import_module(module_name)
-        fn = mod.run
-        result = fn(cfg)
-        payload = {"ok": True, "result": result}
-    except Exception:
-        payload = {"ok": False, "error": "exception", "traceback": traceback.format_exc()}
+        with open(stdout_path, "w") as out_f, open(stderr_path, "w") as err_f:
+            sys.stdout, sys.stderr = out_f, err_f
+            try:
+                mod = importlib.import_module(module_name)
+                fn = mod.run
+                result = fn(cfg)
+                payload = {"ok": True, "result": result}
+            except Exception:
+                payload = {
+                    "ok": False,
+                    "error": "exception",
+                    "traceback": traceback.format_exc(),
+                }
+            finally:
+                # flush explicitly to guarantee data is written
+                sys.stdout.flush()
+                sys.stderr.flush()
     finally:
-        try:
-            sys.stdout.close(); sys.stderr.close()
-        finally:
-            sys.stdout, sys.stderr = old_out, old_err
+        sys.stdout, sys.stderr = old_out, old_err
+
     Path(ret_path).write_text(json.dumps(payload))
 
-def run_once_sequential(module_name: str, run_cfg: dict, run_dir: Path, timeout_s: int = 0, retries: int = 0) -> dict:
+def run_once_sequential(module_name: str, run_cfg: dict, run_dir: Path,
+                        timeout_s: int = 0, retries: int = 0) -> dict:
+    """Run a single experiment in a child process with timeout and retries.
+
+    :param module_name: name of the module to import and run
+    :param run_cfg: configuration dictionary to pass to the module's run function
+    :param run_dir: directory to use for the run (will be created if it doesn't exist)
+    :param timeout_s: timeout in seconds for the child process (0 means no timeout)
+    :param retries: number of retries on failure (0 means no retries)
+    :return: result dictionary from the child process
+    """
     ret_file = run_dir / "_child_return.json"
     attempt = 0
     while True:
         attempt += 1
-        if ret_file.exists(): ret_file.unlink()
+        if ret_file.exists():
+            ret_file.unlink()
         p = mp.Process(target=_child_worker, args=(module_name, run_cfg, str(run_dir), str(ret_file)))
         p.start()
         p.join(timeout=timeout_s if timeout_s > 0 else None)
         if p.is_alive():
-            p.terminate(); p.join()
+            p.terminate()
+            p.join()
             res = {"ok": False, "error": "timeout"}
         else:
-            res = json.loads(ret_file.read_text()) if ret_file.exists() else {"ok": False, "error": "child_crash_no_output"}
+            res = json.loads(ret_file.read_text()) \
+                if ret_file.exists() \
+                else {"ok": False, "error": "child_crash_no_output"}
         if res.get("ok") or attempt > retries:
             return res
 
 # ---------- main ----------
-def main():
+def main() -> None:
+    """Main function to run the orchestrator."""
     ap = argparse.ArgumentParser(description="Sequential orchestrator with dataset support")
     ap.add_argument("--config", required=True)
     ap.add_argument("--out", default="runs")
@@ -310,7 +450,8 @@ def main():
     else:
         videos = load_datasets_from_yaml(data)
 
-    runs_root = Path(args.out); runs_root.mkdir(parents=True, exist_ok=True)
+    runs_root = Path(args.out)
+    runs_root.mkdir(parents=True, exist_ok=True)
     table_path = runs_root / "table.parquet"
 
     manifest = build_manifest(data, module_map, videos)
@@ -323,7 +464,8 @@ def main():
         "count": len(manifest),
         "num_videos": len(videos),
     }
-    (runs_root / f'{meta["created_at"].replace(":","-")}_manifest.json').write_text(json.dumps({"meta": meta, "runs": manifest}, indent=2))
+    ((runs_root / f'{meta["created_at"].replace(":","-")}_manifest.json')
+     .write_text(json.dumps({"meta": meta, "runs": manifest}, indent=2)))
 
     rows = []
     for i, m in enumerate(manifest, start=1):
@@ -339,7 +481,7 @@ def main():
         run_cfg["run"] = {"run_dir": str(exp_dir), "artifacts_dir": str(artifacts_dir)}
         (exp_dir / "config.json").write_text(json.dumps(run_cfg, indent=2))
 
-        print(f"[{i}/{len(manifest)}] {m['group']}/{m['exp_name']} @ {vid['id']} -> {m['module']}  run_id={m['run_id']}")
+        logger.info(f"[{i}/{len(manifest)}] {m['group']}/{m['exp_name']} @ {vid['id']} -> {m['module']}  run_id={m['run_id']}")
 
         res = run_once_sequential(m["module"], run_cfg, exp_dir, timeout_s=args.timeout_s, retries=args.retries)
 
@@ -362,11 +504,13 @@ def main():
             per_frame_df, summary, artifacts, runtime_s = normalize_result_structure(res["result"])
             pf_path = exp_dir / "per_frame.parquet"
             try:
-                if len(per_frame_df): per_frame_df.to_parquet(pf_path, index=False)
+                if len(per_frame_df):
+                    per_frame_df.to_parquet(pf_path, index=False)
                 pf_rel = str(pf_path.relative_to(runs_root)) if pf_path.exists() else None
             except Exception:
                 pf_path = exp_dir / "per_frame.csv"
-                if len(per_frame_df): per_frame_df.to_csv(pf_path, index=False)
+                if len(per_frame_df):
+                    per_frame_df.to_csv(pf_path, index=False)
                 pf_rel = str(pf_path.relative_to(runs_root)) if pf_path.exists() else None
 
             payload = {
@@ -379,9 +523,12 @@ def main():
             (exp_dir / "result.json").write_text(json.dumps(payload, indent=2))
 
             row["runtime_s"] = runtime_s
-            if pf_rel: row["per_frame_path"] = pf_rel
-            for k, v in (summary or {}).items(): row[f"m.{k}"] = v
-            for k, v in (artifacts or {}).items(): row[f"artifact.{k}"] = str(v)
+            if pf_rel:
+                row["per_frame_path"] = pf_rel
+            for k, v in (summary or {}).items():
+                row[f"m.{k}"] = v
+            for k, v in (artifacts or {}).items():
+                row[f"artifact.{k}"] = str(v)
         else:
             (exp_dir / "result.json").write_text(json.dumps(res, indent=2))
 
@@ -391,14 +538,15 @@ def main():
     if len(df):
         try:
             df.to_parquet(table_path, index=False)
-            print(f"Global table: {table_path}")
+            logger.info(f"Global table: {table_path}")
         except Exception:
             csv_path = runs_root / "table.csv"
             df.to_csv(csv_path, index=False)
-            print(f"No parquet engine; wrote CSV: {csv_path}")
+            logger.warning(f"No parquet engine; wrote CSV: {csv_path}")
 
-    print(f"Completed {len(rows)} runs in {runs_root.resolve()}")
-    print(f"Successes: {sum(r.get('ok') for r in rows)}, Failures: {sum(not r.get('ok') for r in rows)}")
+    logger.info(f"Completed {len(rows)} runs in {runs_root.resolve()}")
+    logger.info(f"Successes: {sum(r.get('ok') for r in rows)}, "
+                 f"Failures: {sum(not r.get('ok') for r in rows)}")
 
 if __name__ == "__main__":
     mp.set_start_method("spawn", force=True)
