@@ -1,6 +1,7 @@
 """utils for bimap image registration."""
 
 from pathlib import Path
+import os
 
 import cv2
 import matplotlib.pyplot as plt
@@ -10,6 +11,9 @@ from cotracker.utils.visualizer import read_video_from_path
 from PIL import Image
 from scipy.ndimage import gaussian_filter, sobel
 from skimage.metrics import structural_similarity as ssim
+from skimage.color import rgb2gray
+from skimage.util import img_as_float32
+import tifffile
 
 pth =  Path("../../data/input/strong_movement/Experiment-591czi")
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -175,6 +179,14 @@ def save_and_display_video(array: np.ndarray, filename: str="output.mp4", fps: i
         array = 255 * (array - array_min) / (array_max - array_min + 1e-8)
         array = np.clip(array, 0, 255).astype(np.uint8)
 
+    ext = os.path.splitext(filename)[1].lower()
+
+    if ext in (".tif", ".tiff"):
+        # Save as a multipage TIFF stack (grayscale)
+        # Note: fps doesn't apply to TIFF; no per-frame color conversion needed
+        tifffile.imwrite(filename, array, photometric="minisblack")
+        return
+
     # VideoWriter setup
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     out = cv2.VideoWriter(filename, fourcc, fps, (width, height), isColor=True)
@@ -240,33 +252,119 @@ def crispness(image: np.ndarray) -> float:
     return np.linalg.norm(abs_gradient, ord="fro")
 
 
-def load_video(path: str, length: int=-1,
-               gaussian_filtered: bool=False) -> tuple[np.ndarray, np.ndarray, str]:
-    """Load video from path and optionally apply Gaussian filtering.
+def load_video(
+    path: str,
+    length: int = -1,
+    gaussian_filtered: bool = False,
+    out_dtype: np.dtype = np.float32,
+    order: str = "auto",   # "auto", "THWC", "TCHW", "CTHW", "HWC", "CHW", "THW", "HW"
+) -> tuple[np.ndarray, str]:
+    """
+    Load a video from path, allow various input shape orders, convert to grayscale, and
+    return (T, H, W) as float in [0,1] (by default float32).
 
-    :param path: path to the video file
-    :param length: number of frames to load, -1 to load all frames
-    :param gaussian_filtered: whether to apply Gaussian filtering to each frame
-    :return: tuple of (video tensor, frames as numpy array, filename without extension)
+    Parameters
+    ----------
+    order : str
+        - "auto": infer layout heuristically.
+        - Explicit options:
+          "THWC", "TCHW", "CTHW", "HWC", "CHW", "THW" (gray), "HW" (gray single frame).
+
+    Returns
+    -------
+    gray_thw : np.ndarray
+        (T, H, W), dtype=out_dtype, values in [0,1].
+    filename : str
+        File stem.
     """
     filename = Path(path).stem
-    video = read_video_from_path(path)
-    if video is None:
+    arr = read_video_from_path(path)
+    if arr is None:
         raise FileNotFoundError(f"Video in {path} not found")
-    video = video.squeeze()
+    arr = np.asarray(arr)
+
+    def to_thwc(x: np.ndarray, order: str) -> np.ndarray:
+        """Normalize x into (T, H, W, C) (C in {1,3,4})."""
+        if order != "auto":
+            if order == "THWC":
+                y = x
+            elif order == "TCHW":
+                y = np.transpose(x, (0, 2, 3, 1))
+            elif order == "CTHW":
+                y = np.transpose(x, (1, 2, 3, 0))
+            elif order == "HWC":
+                y = x[None, ...]
+            elif order == "CHW":
+                y = np.transpose(x, (1, 2, 0))[None, ...]
+            elif order == "THW":  # grayscale with time
+                y = x[..., None]
+            elif order == "HW":   # single grayscale frame
+                y = x[None, ..., None]
+            else:
+                raise ValueError(f"Unsupported order='{order}'")
+            return y
+
+        # --- auto detection heuristics ---
+        nd = x.ndim
+        if nd == 4:
+            T, A, B, C = x.shape
+            # If last dim looks like channels
+            if C in (1, 3, 4):
+                return x  # THWC
+            # If second dim looks like channels: TCHW
+            if A in (1, 3, 4):
+                return np.transpose(x, (0, 2, 3, 1))
+            # If first dim looks like channels: CTHW
+            if T in (1, 3, 4):
+                return np.transpose(x, (1, 2, 3, 0))
+            raise ValueError(f"Cannot infer order for shape {x.shape}; please set order explicitly.")
+        elif nd == 3:
+            A, B, C = x.shape
+            # HWC if last dim looks like channels
+            if C in (1, 3, 4):
+                return x[None, ...]  # -> THWC
+            # CHW if first dim looks like channels
+            if A in (1, 3, 4):
+                return np.transpose(x, (1, 2, 0))[None, ...]
+            # Otherwise assume THW (grayscale with time)
+            return x[..., None]
+        elif nd == 2:
+            # single grayscale frame
+            return x[None, ..., None]
+        else:
+            raise ValueError(f"Unsupported ndim={nd} for shape {x.shape}")
+
+    # Normalize to THWC
+    thwc = to_thwc(arr, order)
+
+    # Optional truncation on T
+    if length != -1:
+        thwc = thwc[:length]
+
+    # Validate channels and drop alpha if present
+    C = thwc.shape[-1]
+    if C not in (1, 3, 4):
+        raise ValueError(f"Unsupported channel count C={C}; expected 1, 3, or 4 after normalization.")
+    if C == 4:
+        thwc = thwc[..., :3]
+        C = 3
+
+    # Convert to grayscale (T,H,W)
+    if C == 3:
+        # Ensure proper float scaling to [0,1] before rgb2gray
+        rgb = img_as_float32(thwc)     # keeps shape (T,H,W,3), float64 in [0,1]
+        gray = rgb2gray(rgb)         # (T,H,W), float64 in [0,1]
+    else:  # C == 1
+        gray = img_as_float32(thwc[..., 0])  # (T,H,W), float64 in [0,1]
+
+    # Optional Gaussian blur per frame
     if gaussian_filtered:
-        filtered = np.empty_like(video)
-        for t in range(video.shape[0]):
-            filtered[t] = gaussian_filter(video[t], sigma=2)
-        video = filtered
-    frames = np.array([frame for frame in video], dtype=np.float32)
-    video = torch.from_numpy(np.expand_dims(video.astype(np.float32), axis=0)).float()
-    if len != -1:
-        frames = frames[:len]
-    if video.ndim == 4: # TODO: check dimensions
-        video = torch.from_numpy(np.expand_dims(video, axis=0)).float()
-    video = video.permute(0, 2, 1, 3, 4).repeat(1, 1, 3, 1, 1).to(device)[:,:length,:,:,:]
-    return np.array(video), frames, filename
+        filtered = np.empty_like(gray)
+        for t in range(gray.shape[0]):
+            filtered[t] = gaussian_filter(gray[t], sigma=2)
+        gray = filtered
+
+    return gray.astype(out_dtype, copy=False), filename
 
 def get_all_paths(input_folder: str) -> list:
     """Get all .tif file paths in the input folder and its subfolders.
@@ -277,3 +375,25 @@ def get_all_paths(input_folder: str) -> list:
     p = Path(input_folder)
     paths = list(p.rglob("*.tif"))
     return [p for p in paths if p.is_file()]
+
+def ensure_thw(video: np.ndarray) -> np.ndarray:
+    """
+    Ensure the array is shaped (T, H, W).
+    - If (H, W) -> (1, H, W)
+    - If (T, H, W, C) -> average across channels -> (T, H, W)
+    - If already (T, H, W) -> return as-is
+
+    :param video: input video array
+    :return: reshaped video array
+    :raises ValueError: if input shape is unsupported
+    """
+    if video.ndim == 2:
+        return video[None, ...]
+    if video.ndim == 3:
+        return video
+    if video.ndim == 4:
+        # Convert color to grayscale by channel mean (simple and general)
+        return video.mean(axis=-1)
+    raise ValueError(f"Unsupported video shape {video.shape}. Expected 2D, 3D (T,H,W), or 4D (T,H,W,C).")
+
+
