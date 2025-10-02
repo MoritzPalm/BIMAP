@@ -1,23 +1,34 @@
-"""functions to get ROIs from pixel-wise correlation across frames"""
-
 import matplotlib.pyplot as plt
 import numpy as np
 from cotracker.utils.visualizer import read_video_from_path
+from scipy.signal import convolve2d
+from utils import load_video
+from itertools import cycle
 
-example_path = "../../data/output/ants/method_sweep/strong/v7/run_418fb3ec/artifacts/3czi.mp4"
+
+example_path = "../../data/output/ants/method_sweep/strong/v7/run_7f6a7e57/artifacts/3czi.mp4"
+example_path = "../../data/input/strong_movement/3czi.tif"
 
 def main():
-    video = read_video_from_path(example_path).squeeze()
-    frames = np.array([frame for frame in video], dtype=np.float32)
-    corrs = calculate_all_corrs(video)
-    rois = build_rois(corrs, 0.95)
-    roi_brightness = calculate_roi_brightness_over_time(frames, rois)
-    plt.figure(figsize=(10, 6))
+    # Use your original read + squeeze, but guard single-frame videos to keep (T, H, W)
+    frames, _ = load_video(example_path)
 
+
+    # Compute correlations and ROIs using your original approach
+    corrs = corr_with_neighbors_all(frames)
+    rois = build_rois(corrs, 0.90)
+
+    # --- NEW: visualize ROIs over the mean image (or pick a frame) ---
+    plot_rois_on_image(frames, rois, base="mean")  # "mean" | "max" | "frame:<idx>"
+
+    # ROI brightness (fixed boolean indexing)
+    roi_brightness = calculate_roi_brightness_over_time(frames, rois)
+
+    # Plot brightness over time
+    plt.figure(figsize=(10, 6))
     for roi, brightness_curve in roi_brightness.items():
         plt.plot(brightness_curve, label=f"ROI {roi}")
-
-    plt.xlabel("Time")
+    plt.xlabel("Time (frames)")
     plt.ylabel("Average Brightness")
     plt.title("ROI Brightness Over Time")
     plt.legend()
@@ -26,14 +37,64 @@ def main():
     plt.show()
 
 
+def neighbor_mean_stack(X: np.ndarray) -> np.ndarray:
+    """
+    X: (N, H, W) float array
+    returns M: (N, H, W) neighbor mean for each frame, excluding the center pixel.
+    Edge pixels use the mean over available in-bounds neighbors (3/5/8).
+    """
+    N, H, W = X.shape
+    K = np.array([[1,1,1],
+                  [1,0,1],
+                  [1,1,1]], dtype=X.dtype)
+    # counts of valid neighbors are the same for all frames; compute once
+    ones = np.ones((H, W), dtype=X.dtype)
+    denom = convolve2d(ones, K, mode='same', boundary='fill', fillvalue=0)  # 8 interior, 5 edges, 3 corners
+
+    M = np.empty_like(X)
+    for t in range(N):
+        s = convolve2d(X[t], K, mode='same', boundary='fill', fillvalue=0)
+        M[t] = s / denom
+    return M
+
+def corr_with_neighbors_all(X: np.ndarray) -> np.ndarray:
+    """
+    X: (N, H, W) — N timepoints of HxW images
+    returns corrs: (H, W) Pearson correlation between each pixel's time series
+                   and the mean of its neighbors' time series.
+    """
+    # 1) neighbor mean per frame (N,H,W)
+    M = neighbor_mean_stack(X)
+
+    N = X.shape[0]
+    # 2) Compute timewise statistics without materializing huge intermediates
+    sum_x  = X.sum(axis=0)                   # (H,W)
+    sum_m  = M.sum(axis=0)                   # (H,W)
+    sum_x2 = (X*X).sum(axis=0)               # (H,W)
+    sum_m2 = (M*M).sum(axis=0)               # (H,W)
+    sum_xm = (X*M).sum(axis=0)               # (H,W)
+
+    # 3) Covariance and variance over time
+    # cov(x,m) = E[xm] - E[x]E[m]
+    cov_xm = sum_xm - (sum_x * sum_m) / N
+    var_x  = sum_x2 - (sum_x * sum_x) / N
+    var_m  = sum_m2 - (sum_m * sum_m) / N
+
+    # 4) Pearson correlation with safe divide
+    denom = np.sqrt(var_x * var_m)
+    corrs = np.zeros_like(denom, dtype=X.dtype)
+    mask = denom > 0
+    corrs[mask] = (cov_xm[mask] / denom[mask]).astype(X.dtype)
+    return corrs
+
 def get_neighbor_coords(image: np.ndarray, x: int, y: int) -> list[tuple[int, int]]:
-    """Calculate the coordinates of all neighboring pixels"""
     H, W = image.shape[0], image.shape[1]
     x_neighbors = [-1, 0, 1]
     y_neighbors = [-1, 0, 1]
     neighbor_coords = []
     for dx in x_neighbors:
         for dy in y_neighbors:
+
             nx, ny = x + dx, y + dy
             if 0 <= nx < W and 0 <= ny < H:
                 if not (dx == 0 and dy == 0):
@@ -41,34 +102,9 @@ def get_neighbor_coords(image: np.ndarray, x: int, y: int) -> list[tuple[int, in
     return neighbor_coords
 
 
-def get_corr_with_neighbors(image_stack: np.ndarray, x: int, y:int) -> float:
-    """Calculate the mean correlation of given pixel with its neighbors.
-
-    :param image_stack: (N, H, W) array of N timepoints of HxW images
-    :param x: x coordinate of the pixel
-    :param y: y coordinate of the pixel
-    """
-    neighbor_coords = get_neighbor_coords(image_stack[0], x, y)
-    pixel_fl_time_series = image_stack[:, y, x]
-    neighbors_fl_time_series = np.stack([image_stack[:, ny, nx] for nx, ny in
-                                         neighbor_coords], axis=1)
-    neighbors_mean_time_series = neighbors_fl_time_series.mean(axis=1)
-    return float(np.corrcoef(pixel_fl_time_series, neighbors_mean_time_series)[0, 1])
-
-
-def calculate_all_corrs(image_stack: np.ndarray) -> np.ndarray:
-    """Calculate all individual correlations for each pixel across frames."""
-    H, W = image_stack.shape[1], image_stack.shape[2]
-    corrs = np.zeros_like(image_stack[0])
-    for x in range(W):
-        for y in range(H):
-            corr = get_corr_with_neighbors(image_stack, x, y)
-            corrs[y, x] = corr
-    return corrs
-
-
 def build_roi_recursive(corrs: np.ndarray, center: tuple, threshold: float,
                         labels: np.ndarray, label_id: int) -> set:
+    # Unchanged logic from your original implementation
     y, x = center
     if labels[y, x] != -1 or corrs[y, x] < threshold:
         return set()
@@ -85,17 +121,8 @@ def build_roi_recursive(corrs: np.ndarray, center: tuple, threshold: float,
     return roi
 
 
-def build_roi(corrs, threshold, visited):
-    """Helper function to build a single ROI"""
-    masked_corrs = corrs.copy()
-    for y, x in visited:
-        masked_corrs[y, x] = -np.inf
-    roi = set()
-    center = np.unravel_index(np.argmax(masked_corrs, axis=None), corrs.shape)
-    roi.update(build_roi_recursive(corrs, center, threshold, visited))
-    return roi
-
-def build_rois(corrs: np.ndarray, threshold=0.5) -> np.array:
+def build_rois(corrs: np.ndarray, threshold=0.5) -> np.ndarray:
+    # Unchanged logic from your original implementation (kept intact)
     labels = np.full_like(corrs, fill_value=-1, dtype=int)
     label_id = 1
     H, W = corrs.shape
@@ -115,27 +142,71 @@ def build_rois(corrs: np.ndarray, threshold=0.5) -> np.array:
 
 
 def calculate_roi_brightness_over_time(image_stack: np.ndarray, labels: np.ndarray) -> dict[int, np.ndarray]:
-    """:param image_stack: (T, H, W) array of images over time
-    :param labels: (H, W) array with ROI labels (1, 2, ...) and 0/-1 for non-ROI
-    :return: Dictionary mapping ROI label -> (T,) array of average brightness over time
     """
-    roi_brightness = {}
-    T = image_stack.shape[0]
-    unique_labels = np.unique(labels)
+    FIXED: boolean indexing across (T, H, W) using flattened mask.
+    :param image_stack: (T, H, W)
+    :param labels: (H, W) with ROI labels (1, 2, ...) and 0/-1 for non-ROI
+    """
+    roi_brightness: dict[int, np.ndarray] = {}
+    T, H, W = image_stack.shape
+    flat_video = image_stack.reshape(T, H * W)
+    flat_labels = labels.reshape(H * W)
 
-    for label in unique_labels:
+    for label in np.unique(flat_labels):
         if label <= 0:
-            continue  # Skip background and visited non-ROI pixels
-
-        # Find pixel indices belonging to the ROI
-        roi_mask = labels == label
-        roi_pixels = image_stack[:, roi_mask]  # Shape: (T, N_pixels)
-
-        # Compute average over pixels for each timepoint
-        roi_mean = roi_pixels.mean(axis=1)  # Shape: (T,)
-        roi_brightness[label] = roi_mean
+            continue
+        mask = (flat_labels == label)
+        if not np.any(mask):
+            continue
+        roi_mean = flat_video[:, mask].mean(axis=1)  # (T,)
+        roi_brightness[int(label)] = roi_mean
 
     return roi_brightness
+
+def plot_rois_on_image(frames: np.ndarray, labels: np.ndarray, base: str = "mean") -> None:
+    """
+    Show ROI areas as colored overlays on top of the base image.
+    No labels or numbers, just filled ROI regions.
+    """
+    T, H, W = frames.shape
+
+    # ----- choose base image -----
+    if base == "mean":
+        base_img, title_suffix = frames.mean(axis=0), "Mean Image"
+    elif base == "max":
+        base_img, title_suffix = frames.max(axis=0), "Max-Projection Image"
+    elif base.startswith("frame:"):
+        try:
+            idx = int(base.split(":")[1])
+        except Exception:
+            idx = 0
+        idx = max(0, min(T - 1, idx))
+        base_img, title_suffix = frames[idx], f"Frame {idx}"
+    else:
+        base_img, title_suffix = frames.mean(axis=0), "Mean Image"
+
+    plt.figure(figsize=(8, 8))
+    plt.imshow(base_img, cmap="gray", interpolation="nearest")
+
+    # color cycle for ROI fills
+    cmap = plt.get_cmap("tab20")
+    colors = cycle([cmap(i) for i in range(cmap.N)])
+
+    unique_labels = [int(v) for v in np.unique(labels) if v > 0]
+    for lab, color in zip(unique_labels, colors):
+        mask = (labels == lab)
+
+        # semi-transparent overlay
+        overlay = np.zeros((H, W, 4))
+        overlay[..., :3] = color[:3]
+        overlay[..., 3] = 0.75 * mask  # alpha only on ROI pixels
+        plt.imshow(overlay, interpolation="nearest")
+
+    plt.title(f"ROIs over {title_suffix}")
+    plt.axis("off")
+    plt.tight_layout()
+    plt.show()
+
 
 if __name__ == "__main__":
     main()
