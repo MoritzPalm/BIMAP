@@ -1,6 +1,4 @@
-#!/usr/bin/env python3
-"""paper_summaries_from_config_with_crispness_pct.py
-
+"""
 Paper-ready tables with ONE ROW PER CONFIGURATION (read from config.json), averaged over videos,
 including a *crispness improvement (%)* vs the **uncorrected input video**.
 
