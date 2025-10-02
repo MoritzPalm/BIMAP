@@ -103,7 +103,7 @@ def _run(video: np.ndarray, frames: list[np.ndarray], filename: str, config: dic
                      np.expand_dims(frames, axis=-1),
                      diff_warp=diff_warp, visibility=visibility)
     end_time = time.time()
-    save_and_display_video(np.array(result), f"{output_path}/{filename}.mp4")
+    save_and_display_video(np.array(result), f"{output_path}/{filename}.tif")
     torch.cuda.empty_cache()
     gc.collect()
     metrics = evaluate(result, frames, frames[template_index])

@@ -157,7 +157,7 @@ def run(config:dict) -> dict:
     return {"runtime_s": runtime,
               "metrics": metrics,
               "artifacts": {
-                  "output_path": f"{output_path}/{filename}.mp4",
+                  "output_path": f"{output_path}/{filename}.tif",
               }}
 
 

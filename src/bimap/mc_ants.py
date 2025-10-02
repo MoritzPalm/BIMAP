@@ -55,7 +55,7 @@ def run(config: dict) -> dict:
     return {"runtime_s": runtime,
               "metrics": metrics,
               "artifacts": {
-                  "output_path": f"{output_path}/{filename}.mp4",
+                  "output_path": f"{output_path}/{filename}.tif",
               }}
 
 
@@ -81,7 +81,7 @@ def _run(frame_stack: list[np.ndarray], template_idx: int,
         areg = ants.registration(fixed, moving, ants_method)
         motion_corrected_images.append(areg["warpedmovout"].numpy().astype(np.float32))
     end_time = time.time()
-    save_and_display_video(np.array(motion_corrected_images), f"{out_path}/{filename}.mp4")
+    save_and_display_video(np.array(motion_corrected_images), f"{out_path}/{filename}.tif")
     metrics = evaluate(motion_corrected_images, frame_stack, frame_stack[template_idx])
     return motion_corrected_images, metrics, end_time - start_time
 

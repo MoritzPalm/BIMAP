@@ -67,7 +67,7 @@ def run(config:dict) -> dict:
     return {"runtime_s": runtime,
               "metrics": metrics,
               "artifacts": {
-                  "output_path": f"{output_path}/{filename}.mp4",
+                  "output_path": f"{output_path}/{filename}.tif",
               }}
 
 
@@ -115,7 +115,7 @@ def _run(frames: list, template_idx: int, output_path: str,
         results.append(lddmm.outputDeformedTemplate()[0])
     end_time = time.time()
     if save:
-        save_and_display_video(np.array(results), f"{output_path}/{filename}.mp4")
+        save_and_display_video(np.array(results), f"{output_path}/{filename}.tif")
     metrics = evaluate(results, frames, target)
     return results, metrics, end_time - start_time
 
