@@ -23,7 +23,7 @@ class LDDMMParams(TypedDict, total=False):
 def main() -> tuple[list, dict, float]:
     """Use this function only for local testing purposes, you probably want to use run() instead."""
     path = "../../data/input/strong_movement/b5czi.tif"
-    video, frames, filename = load_video(path)
+    video, frames, filename = load_video(path, length=10, order="CTHW")
     frames = frames.astype(np.int16)
     template_idx = find_highest_correlation(frames)
     return _run(frames, template_idx, "../../data/output/lddmms", filename, save=True)
@@ -44,7 +44,7 @@ def run(config:dict) -> dict:
     path = config["data"]["path"]
     output_path = config["run"]["artifacts_dir"]
     filtered = config.get("gaussian_filtered", False)
-    video, frames, filename = load_video(path, gaussian_filtered=filtered)
+    video, frames, filename = load_video(path, gaussian_filtered=filtered, length=400, order="CTHW")
     template_index = find_highest_correlation(frames) if config.get("template_strategy") == "computed" else 0
     param_dict = {"a": 8, "epsilon": 1.0, "nt": 7,
                   "niter": 200, "sigma": 10, "sigmaR": 10}

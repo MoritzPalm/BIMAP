@@ -127,7 +127,7 @@ def run(config:dict) -> dict:
     """
     path = config["data"]["path"]
     abs_path = Path.resolve(path)
-    video, frames, filename = load_video(path)
+    video, frames, filename = load_video(path, length=400, order="CTHW")
     output_path = config["run"]["artifacts_dir"]
     abs_output_path = Path.resolve(output_path)
     filtered = config.get("gaussian_filtered", False)
@@ -138,7 +138,7 @@ def run(config:dict) -> dict:
                                     "mc_normcorre_callee.py",
                                     abs_path,
                                     abs_output_path)
-    warped, _, _ = load_video(f"{output_path}/{filename}.tif", gaussian_filtered=filtered)
+    warped, _, _ = load_video(f"{output_path}/{filename}.tif", gaussian_filtered=filtered, length=400, order="CTHW")
     metrics = evaluate(warped.cpu().numpy().squeeze()[:,0,:,:], frames, frames[template_index])
     ssim_list = metrics["ssims"]
     mse_list = metrics["mse_list"]

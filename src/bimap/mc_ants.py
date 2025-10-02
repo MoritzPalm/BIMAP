@@ -10,7 +10,7 @@ from utils import evaluate, find_highest_correlation, load_video, save_and_displ
 def main() -> tuple[list[np.ndarray], dict, float]:
     """Use this function only for local testing purposes, you probably want to use run() instead."""
     path = "../../data/input/strong_movement/b5czi.tif"
-    video, frames, filename = load_video(path, len=10)
+    video, frames, filename = load_video(path, length=10, order="CTHW")
     template_idx = find_highest_correlation(frames)
     return _run(frames, template_idx, filename=filename, out_path="./output")
 
@@ -34,7 +34,7 @@ def run(config: dict) -> dict:
         method = "SyNOnly"
 
     filtered = config.get("gaussian_filtered", False)
-    video, frames, filename = load_video(path, gaussian_filtered=filtered)
+    video, frames, filename = load_video(path, gaussian_filtered=filtered, length=400, order="CTHW")
 
     template_index = find_highest_correlation(frames) if config.get("template_strategy") == "computed" else 0
     warped, metrics, runtime = _run(frames, template_index, output_path, filename, method)
