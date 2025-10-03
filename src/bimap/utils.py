@@ -93,7 +93,7 @@ def evaluate(corrected_images: np.array, images: list[np.array], template: np.nd
     crispness_pct_improvement = crispness_improvement / crispness_before * 100
     corrs_list = []
     for corrected_image in corrected_images:
-        corrs_list.append(np.corrcoef(corrected_image.flatten(), summary_image_after)[0,1])
+        corrs_list.append(np.corrcoef(corrected_image.flatten(), summary_image_after.flatten())[0,1])
     return {"ssims": ssim_list,
                "mse_list": mse_list,
                "corrs_list": corrs_list,
@@ -258,7 +258,7 @@ def load_video(
     gaussian_filtered: bool = False,
     out_dtype: np.dtype = np.float32,
     order: str = "auto",   # "auto", "THWC", "TCHW", "CTHW", "HWC", "CHW", "THW", "HW"
-) -> tuple[np.ndarray, str]:
+) -> tuple[np.ndarray, list, str]:
     """
     Load a video from path, allow various input shape orders, convert to grayscale, and
     return (T, H, W) as float in [0,1] (by default float32).
@@ -364,7 +364,9 @@ def load_video(
             filtered[t] = gaussian_filter(gray[t], sigma=2)
         gray = filtered
 
-    return gray.astype(out_dtype, copy=False), filename
+    frame_stack = [gray[t] for t in range(gray.shape[0])]
+
+    return gray.astype(out_dtype, copy=False), frame_stack, filename
 
 def get_all_paths(input_folder: str) -> list:
     """Get all .tif file paths in the input folder and its subfolders.
