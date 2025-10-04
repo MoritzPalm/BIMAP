@@ -7,6 +7,7 @@ from typing import TypedDict, Unpack
 import numpy as np
 import torch_lddmm
 from utils import evaluate, find_highest_correlation, load_video, save_and_display_video
+from floodfill import floodfill
 
 
 class LDDMMParams(TypedDict, total=False):
@@ -20,13 +21,18 @@ class LDDMMParams(TypedDict, total=False):
     sigmaR: float
 
 
-def main() -> tuple[list, dict, float]:
+def main() -> dict:
     """Use this function only for local testing purposes, you probably want to use run() instead."""
     path = "../../data/input/strong_movement/b5czi.tif"
     video, frames, filename = load_video(path, length=10, order="CTHW")
-    frames = frames.astype(np.int16)
-    template_idx = find_highest_correlation(frames)
-    return _run(frames, template_idx, "../../data/output/lddmms", filename, save=True)
+    #frames = frames.astype(np.int16)
+    config = {
+        "run": {
+            "artifacts_dir": "./artifacts", },
+        "data": {
+            "path": path, }
+    }
+    return run(config)
 
 
 def run(config:dict) -> dict:
@@ -50,6 +56,8 @@ def run(config:dict) -> dict:
                   "niter": 200, "sigma": 10, "sigmaR": 10}
     warped, metrics, runtime = _run(frames, template_index, output_path, filename,
                                     save=True, **param_dict)
+    warped = np.array(warped)
+    floodfill(warped, output_path)
     ssim_list = metrics["ssims"]
     mse_list = metrics["mse_list"]
     crispness_improvement = metrics["crispness_improvement"]

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 from utils import evaluate, find_highest_correlation, load_video
+from floodfill import floodfill
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +139,8 @@ def run(config:dict) -> dict:
                                     "mc_normcorre_callee.py",
                                     abs_path,
                                     abs_output_path)
-    warped, _, _ = load_video(f"{output_path}/{filename}.tif", gaussian_filtered=filtered, length=400, order="CTHW")
+    warped, _, _ = load_video(f"{output_path}/{filename}.tif", gaussian_filtered=False, length=400, order="CTHW")
+    floodfill(warped, output_path)
     metrics = evaluate(warped.cpu().numpy().squeeze()[:,0,:,:], frames, frames[template_index])
     ssim_list = metrics["ssims"]
     mse_list = metrics["mse_list"]

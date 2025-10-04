@@ -10,17 +10,23 @@ import torch
 from cotracker.utils.visualizer import Visualizer
 from scipy.ndimage import map_coordinates, zoom
 from utils import evaluate, find_highest_correlation, load_video, save_and_display_video
+from floodfill import floodfill
 
 os.environ["TORCH_HOME"] = "/data/ih26ykel/cache/cotracker"
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def main() -> tuple[np.ndarray, dict, float]:
+def main() -> dict:
     """Use this function only for local testing purposes, you probably want to use run() instead."""
     path = "../../data/input/strong_movement/b5czi.tif"
-    video, frames, filename = load_video(path, length=10, order="CTHW")
-    return _run(video, frames, filename, "./output")
+    config = {
+        "run": {
+            "artifacts_dir": "./artifacts",},
+        "data": {
+            "path": path,}
+    }
+    return run(config)
 
 
 def run(config:dict) -> dict:
@@ -41,8 +47,11 @@ def run(config:dict) -> dict:
     path = config["data"]["path"]
     output_path = config["run"]["artifacts_dir"]
     filtered = config.get("gaussian_filtered", False)
-    video, frames, filename = load_video(path, length = 400, gaussian_filtered=filtered, order="CTHW")
+    video, frames, filename = load_video(path,  gaussian_filtered=filtered, order="CTHW")
     warped, metrics, runtime = _run(video, frames, filename, config)
+
+    #floodfill
+    floodfill(warped, output_path)
 
     #bookkeping
     ssim_list = metrics["ssims"]
