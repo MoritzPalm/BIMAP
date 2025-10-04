@@ -42,13 +42,42 @@ datasets:
     - id: v14
       path: ../../data/input/strong_movement/Experiment-591czi.tif
       category: strong
+
 groups:
+  cotracker:
+    module: mc_cotracker
+    experiments:
+      - name: visibility
+        params:
+          visibility: [true, false]
+      - name: diffeomorphic_warp
+        params:
+          diff_warp: [true, false]
+      - name: grid_size_sweep
+        params:
+          grid_size: [5, 10, 15, 20, 50, 100]
+  lddmms:
+    module: mc_lddmms
+    experiments: []
   ants:
     module: mc_ants
     experiments:
       - name: method_sweep
         params:
           method: [ "Elastic", "ElasticSyN", "SyN", "SyNRA", "SyNOnly", "SyNAggro" ]
+  normcorre:
+    module: mc_normcorre
+    experiments: []
+
+global_experiments:
+  - name: template_index
+    apply_to: ["cotracker", "ants", "lddmms", "voxelmorph"]
+    params:
+      template_strategy: ["first_frame", "computed"]
+  - name: gaussian_filtering
+    apply_to: ["*"]
+    params:
+      gaussian_filtered: [true, false]
 
 
 
