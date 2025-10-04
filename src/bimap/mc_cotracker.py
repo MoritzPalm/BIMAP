@@ -51,7 +51,7 @@ def run(config:dict) -> dict:
     warped, metrics, runtime = _run(video, frames, filename, config)
 
     #floodfill
-    floodfill(warped, output_path)
+    #floodfill(warped, output_path)
 
     #bookkeping
     ssim_list = metrics["ssims"]

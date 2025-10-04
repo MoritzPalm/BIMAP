@@ -40,7 +40,7 @@ def run(config: dict) -> dict:
     template_index = find_highest_correlation(frames) if config.get("template_strategy") == "computed" else 0
     warped, metrics, runtime = _run(frames, template_index, output_path, filename, method)
     warped = np.array(warped)
-    floodfill(warped, output_path)
+    #floodfill(warped, output_path)
     ssim_list = metrics["ssims"]
     mse_list = metrics["mse_list"]
     crispness_improvement = metrics["crispness_improvement"]
