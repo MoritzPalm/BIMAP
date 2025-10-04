@@ -1,3 +1,5 @@
+
+import os
 import matplotlib.pyplot as plt
 import numpy as np
 from cotracker.utils.visualizer import read_video_from_path
@@ -8,23 +10,21 @@ from itertools import cycle
 
 example_path = "../../data/output/ants/method_sweep/strong/v7/run_7f6a7e57/artifacts/3czi.mp4"
 example_path = "../../data/input/strong_movement/3czi.tif"
+example_path = "./artifacts/b5czi.tif"
 
 def main():
     # Use your original read + squeeze, but guard single-frame videos to keep (T, H, W)
-    frames, _ = load_video(example_path)
+    video, frames, _ = load_video(example_path, full_channels=False)
+    floodfill(video, "./", threshold=0.88)
 
 
-    # Compute correlations and ROIs using your original approach
-    corrs = corr_with_neighbors_all(frames)
-    rois = build_rois(corrs, 0.90)
-
-    # --- NEW: visualize ROIs over the mean image (or pick a frame) ---
-    plot_rois_on_image(frames, rois, base="mean")  # "mean" | "max" | "frame:<idx>"
-
-    # ROI brightness (fixed boolean indexing)
-    roi_brightness = calculate_roi_brightness_over_time(frames, rois)
-
-    # Plot brightness over time
+def floodfill(video: np.ndarray, artifact_path: str, threshold: float = .9):
+    corrs = corr_with_neighbors_all(video)
+    plt.imsave(artifact_path +"\\" + "correlations.png", corrs, format="png", dpi=300)
+    rois = build_rois(corrs, threshold)
+    rois = filter_small_rois(rois, min_pixels=20, relabel=True)
+    plot_rois_on_image(video, rois, base="mean", save_path=artifact_path +"\\" + "rois.png")
+    roi_brightness = calculate_roi_brightness_over_time(video, rois)
     plt.figure(figsize=(10, 6))
     for roi, brightness_curve in roi_brightness.items():
         plt.plot(brightness_curve, label=f"ROI {roi}")
@@ -34,7 +34,10 @@ def main():
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
-    plt.show()
+    plt.savefig(artifact_path +"\\" + "brightness_over_time.png",
+                dpi=300, bbox_inches="tight", format="png" )
+    plt.close()
+
 
 
 def neighbor_mean_stack(X: np.ndarray) -> np.ndarray:
@@ -163,7 +166,42 @@ def calculate_roi_brightness_over_time(image_stack: np.ndarray, labels: np.ndarr
 
     return roi_brightness
 
-def plot_rois_on_image(frames: np.ndarray, labels: np.ndarray, base: str = "mean") -> None:
+
+def filter_small_rois(labels: np.ndarray, min_pixels: int = 20, relabel: bool = True) -> np.ndarray:
+    """Zero-out ROIs smaller than min_pixels. Optionally relabel remaining ROIs to 1..K."""
+    lab = labels.copy()
+    # Count sizes
+    flat = lab.ravel()
+    pos = flat[flat > 0]
+    counts = np.bincount(pos)  # index = label id
+    if counts.size == 0:
+        return lab if not relabel else np.zeros_like(lab, dtype=int)
+
+    keep = np.where(counts >= min_pixels)[0]  # labels to keep
+    mask_keep = np.isin(lab, keep)
+    lab[~mask_keep] = 0
+
+    if not relabel:
+        return lab
+
+    # Relabel to 1..K
+    kept_labels = np.unique(lab)
+    kept_labels = kept_labels[kept_labels > 0]
+    if kept_labels.size == 0:
+        return np.zeros_like(lab, dtype=int)
+
+    mapping = {old:i+1 for i,old in enumerate(kept_labels)}
+    out = np.zeros_like(lab, dtype=int)
+    # vectorized remap using an array lookup
+    max_old = kept_labels.max()
+    lut = np.zeros(max_old+1, dtype=int)
+    for old,new in mapping.items():
+        lut[old] = new
+    m = (lab > 0)
+    out[m] = lut[lab[m]]
+    return out
+
+def plot_rois_on_image(frames: np.ndarray, labels: np.ndarray, base: str = "mean", save_path: str = None) -> None:
     """
     Show ROI areas as colored overlays on top of the base image.
     No labels or numbers, just filled ROI regions.
@@ -193,7 +231,7 @@ def plot_rois_on_image(frames: np.ndarray, labels: np.ndarray, base: str = "mean
     colors = cycle([cmap(i) for i in range(cmap.N)])
 
     unique_labels = [int(v) for v in np.unique(labels) if v > 0]
-    for lab, color in zip(unique_labels, colors):
+    for i, (lab, color) in enumerate(zip(unique_labels, colors)):
         mask = (labels == lab)
 
         # semi-transparent overlay
@@ -205,7 +243,15 @@ def plot_rois_on_image(frames: np.ndarray, labels: np.ndarray, base: str = "mean
     plt.title(f"ROIs over {title_suffix}")
     plt.axis("off")
     plt.tight_layout()
-    plt.show()
+
+    if save_path:
+        dir_ = os.path.dirname(save_path)
+        if dir_:
+            os.makedirs(dir_, exist_ok=True)
+        plt.savefig(save_path, dpi=300, bbox_inches="tight", pad_inches=0)
+        plt.close()
+    else:
+        plt.show()
 
 
 if __name__ == "__main__":
