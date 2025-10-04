@@ -29,6 +29,33 @@ logger = logging.getLogger(__name__)
 
 
 # ---------- utils ----------
+
+def setup_logging(log_file: Path, level=logging.INFO) -> None:
+    """Log to both console and a file."""
+    fmt = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
+    datefmt = "%Y-%m-%d %H:%M:%S"
+
+    # Make sure parent dirs exist
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+
+    # Handlers
+    console = logging.StreamHandler(stream=sys.stdout)
+    console.setLevel(level)
+
+    fileh = logging.FileHandler(log_file, encoding="utf-8")
+    fileh.setLevel(level)
+
+    formatter = logging.Formatter(fmt=fmt, datefmt=datefmt)
+    console.setFormatter(formatter)
+    fileh.setFormatter(formatter)
+
+    # Configure root logger
+    logging.basicConfig(
+        level=level,
+        handlers=[console, fileh],
+        force=True,  # replace any pre-existing handlers
+    )
+
 def now_iso() -> str:
     """Get current time in ISO format with timezone (UTC)."""
     return datetime.now(UTC).isoformat()
@@ -371,6 +398,12 @@ def _child_worker(module_name: str, cfg: dict, run_dir: str, ret_path: str) -> N
     stdout_path = run_dir_path / "stdout.log"
     stderr_path = run_dir_path / "stderr.log"
 
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+        handlers=[logging.StreamHandler(sys.stdout)]  # logs go to stdout.log
+    )
+
     old_out, old_err = sys.stdout, sys.stderr
     try:
         with open(stdout_path, "w") as out_f, open(stderr_path, "w") as err_f:
@@ -452,6 +485,7 @@ def main() -> None:
 
     runs_root = Path(args.out)
     runs_root.mkdir(parents=True, exist_ok=True)
+    setup_logging(runs_root / "orchestrator.log", level=logging.INFO)
     table_path = runs_root / "table.parquet"
 
     manifest = build_manifest(data, module_map, videos)

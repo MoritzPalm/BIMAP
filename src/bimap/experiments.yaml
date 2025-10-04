@@ -55,7 +55,7 @@ groups:
           diff_warp: [true, false]
       - name: grid_size_sweep
         params:
-          grid_size: [5, 10, 15, 20, 50, 100]
+          grid_size: [5, 10, 15, 20]
   lddmms:
     module: mc_lddmms
     experiments: []
@@ -71,7 +71,7 @@ groups:
 
 global_experiments:
   - name: template_index
-    apply_to: ["cotracker", "ants", "lddmms", "voxelmorph"]
+    apply_to: ["cotracker", "ants", "lddmms", "normcorre"]
     params:
       template_strategy: ["first_frame", "computed"]
   - name: gaussian_filtering
