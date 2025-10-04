@@ -254,10 +254,11 @@ def crispness(image: np.ndarray) -> float:
 
 def load_video(
     path: str,
-    length: int = -1,
+    length: int = 400,
     gaussian_filtered: bool = False,
     out_dtype: np.dtype = np.float32,
     order: str = "auto",   # "auto", "THWC", "TCHW", "CTHW", "HWC", "CHW", "THW", "HW"
+    full_channels: bool = True
 ) -> tuple[np.ndarray, list, str]:
     """
     Load a video from path, allow various input shape orders, convert to grayscale, and
@@ -273,7 +274,7 @@ def load_video(
     Returns
     -------
     gray_thw : np.ndarray
-        (T, H, W), dtype=out_dtype, values in [0,1].
+        (B, T, C, H, W), dtype=out_dtype, values in [0,1].
     filename : str
         File stem.
     """
@@ -364,9 +365,15 @@ def load_video(
             filtered[t] = gaussian_filter(gray[t], sigma=2)
         gray = filtered
 
+    if full_channels:
+        video = gray[None, :, None, :, :]  # (1, T, 1, H, W)
+        video = np.repeat(video, 3, axis=2) #(1, T, 3, H, W)
+    else:
+        video = gray
+
     frame_stack = [gray[t] for t in range(gray.shape[0])]
 
-    return gray.astype(out_dtype, copy=False), frame_stack, filename
+    return video.astype(out_dtype, copy=False), frame_stack, filename
 
 def get_all_paths(input_folder: str) -> list:
     """Get all .tif file paths in the input folder and its subfolders.
