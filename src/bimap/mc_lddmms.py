@@ -57,7 +57,7 @@ def run(config:dict) -> dict:
     warped, metrics, runtime = _run(frames, template_index, output_path, filename,
                                     save=True, **param_dict)
     warped = np.array(warped)
-    floodfill(warped, output_path)
+    #floodfill(warped, output_path)
     ssim_list = metrics["ssims"]
     mse_list = metrics["mse_list"]
     crispness_improvement = metrics["crispness_improvement"]

@@ -140,7 +140,7 @@ def run(config:dict) -> dict:
                                     abs_path,
                                     abs_output_path)
     warped, _, _ = load_video(f"{output_path}/{filename}.tif", gaussian_filtered=False, length=400, order="CTHW")
-    floodfill(warped, output_path)
+    #floodfill(warped, output_path)
     metrics = evaluate(warped.cpu().numpy().squeeze()[:,0,:,:], frames, frames[template_index])
     ssim_list = metrics["ssims"]
     mse_list = metrics["mse_list"]
