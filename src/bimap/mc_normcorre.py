@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 
 import numpy as np
-from utils import evaluate, find_highest_correlation, load_video
+from utils import evaluate, find_highest_correlation, load_video, save_and_display_video
 from floodfill import floodfill
 
 logger = logging.getLogger(__name__)
@@ -128,14 +128,17 @@ def run(config:dict) -> dict:
     """
     path = Path(config["data"]["path"])
     abs_path = Path.resolve(path)
-    video, frames, filename = load_video(path, length=400, order="CTHW")
+    filtered = config.get("gaussian_filtered", False)
+    video, frames, filename = load_video(str(abs_path), length=400, order="CTHW", gaussian_filtered=filtered)
+    save_and_display_video(video, "temp_input.tif")
     output_path = Path(config["run"]["artifacts_dir"])
     abs_output_path = Path.resolve(output_path)
+    input_path = "./temp_input.tif"
     template_index = find_highest_correlation(frames) if config.get("template_strategy") == "computed" else 0
     stdout, runtime = run_in_caiman("caiman",
                                     r"/data/ih26ykel/caiman_data/demos/notebooks",
                                     "mc_normcorre_callee.py",
-                                    str(abs_path),
+                                    input_path,
                                     str(abs_output_path))
     warped, _, _ = load_video(f"{output_path}/{filename}.tif", gaussian_filtered=False, length=400, order="CTHW")
     #floodfill(warped, output_path)
@@ -177,4 +180,5 @@ if __name__ == "__main__":
     #                    "/data/ih26ykel/BIMAP/data/input/strong_movement/b5czi.tif",
     #                    "/data/ih26ykel/BIMAP/data/output/normcorre")
     #logger.debug(out)
+    print(result)
     logger.debug(result)
