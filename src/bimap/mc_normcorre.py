@@ -130,6 +130,7 @@ def run(config:dict) -> dict:
     abs_path = Path.resolve(path)
     filtered = config.get("gaussian_filtered", False)
     video, frames, filename = load_video(str(abs_path), length=400, order="CTHW", gaussian_filtered=filtered)
+    video = np.squeeze(video[:, :, 0, :, :])
     save_and_display_video(video, "temp_input.tif")
     output_path = Path(config["run"]["artifacts_dir"])
     abs_output_path = Path.resolve(output_path)
