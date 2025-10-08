@@ -132,18 +132,18 @@ def run(config:dict) -> dict:
     video, frames, filename = load_video(str(abs_path), length=400, order="CTHW", gaussian_filtered=filtered)
     video = np.squeeze(video[:, :, 0, :, :])
     save_and_display_video(video, "temp_input.tif")
-    output_path = Path(config["run"]["artifacts_dir"])
-    abs_output_path = Path.resolve(output_path)
-    print(abs_output_path)
+    output_root = Path(config["run"]["artifacts_dir"]).expanduser().resolve()
+    artifacts_dir = output_root / "artifacts"
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
     input_path = Path("temp_input.tif").resolve()
     template_index = find_highest_correlation(frames) if config.get("template_strategy") == "computed" else 0
     stdout, runtime = run_in_caiman("caiman",
                                     r"/data/ih26ykel/caiman_data/demos/notebooks",
                                     "mc_normcorre_callee.py",
                                     str(input_path),
-                                    str(abs_output_path),
+                                    str(artifacts_dir),
                                     filename)
-    warped, _, _ = load_video(f"{output_path}/artifacts/{filename}.tif", gaussian_filtered=False, length=400, order="CTHW")
+    warped, _, _ = load_video(f"{artifacts_dir}/{filename}.tif", gaussian_filtered=False, length=400, order="CTHW")
     #floodfill(warped, output_path)
     metrics = evaluate(np.squeeze(warped[:,:,0,:,:]), frames, frames[template_index])
     ssim_list = metrics["ssims"]
