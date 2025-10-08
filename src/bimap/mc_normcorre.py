@@ -134,6 +134,7 @@ def run(config:dict) -> dict:
     save_and_display_video(video, "temp_input.tif")
     output_path = Path(config["run"]["artifacts_dir"])
     abs_output_path = Path.resolve(output_path)
+    print(abs_output_path)
     input_path = Path("temp_input.tif").resolve()
     template_index = find_highest_correlation(frames) if config.get("template_strategy") == "computed" else 0
     stdout, runtime = run_in_caiman("caiman",
@@ -172,7 +173,7 @@ if __name__ == "__main__":
             "path": "/data/ih26ykel/BIMAP/data/input/strong_movement/b5czi.tif",
         },
         "run": {
-            "artifacts_dir": "/data/ih26ykel/BIMAP/data/output/normcorre/artifacts",
+            "artifacts_dir": "/data/ih26ykel/BIMAP/data/output/normcorre",
         }
     }
     result = run(config)
