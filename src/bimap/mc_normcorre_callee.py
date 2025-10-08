@@ -41,8 +41,16 @@ def main() -> None:
     mc.motion_correct(save_movie=True, template=mc.total_template_rig)
     m_els = cm.load(mc.fname_tot_els)
     end_time = time.time()
-    m_els.save(
-        f"{output_path}/{filename}.tif")
+    target = output_path / f"{filename}.tif"
+    m_els.save(target)
+    if not target.exists():
+        # Try a fallback: CaImAn sometimes appends suffixes or different extensions
+        # Save as .tiff as a second attempt
+        fallback = output_path / f"{filename}.tiff"
+        m_els.save(str(fallback))
+        print(f"WROTE={fallback}")
+    else:
+        print(f"WROTE={target}")
     print(f"TIME_TAKEN={end_time - start_time}")    # noqa: T201 # print to stdout for caller to parse
 
 

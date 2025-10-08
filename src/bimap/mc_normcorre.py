@@ -143,8 +143,26 @@ def run(config:dict) -> dict:
                                     str(input_path),
                                     str(artifacts_dir),
                                     filename)
+    wrote_path = None
+    for line in stdout.splitlines():
+        if line.startswith("WROTE="):
+            wrote_path = line.split("=", 1)[1].strip()
+            logger.info("Callee wrote: %s", wrote_path)
+            break
     out_path = artifacts_dir / f"{filename}.tif"
-    print(out_path)
+    if not out_path.exists():
+        # try common alternates
+        import glob
+        candidates = []
+        for ext in (".tif", ".tiff", ".mmap", ".avi", ".mp4", ".npy"):
+            candidates.extend(glob.glob(str(artifacts_dir / f"{filename}*{ext}")))
+        listing = "\n".join(sorted(p.name for p in artifacts_dir.iterdir()))
+        raise FileNotFoundError(
+            f"Expected output not found: {out_path}\n"
+            f"WROTE from callee: {wrote_path}\n"
+            f"Artifacts dir contents:\n{listing}\n"
+            f"Other candidates I see:\n" + "\n".join(candidates)
+        )
     warped, _, _ = load_video(out_path, gaussian_filtered=False, length=400, order="CTHW")
     #floodfill(warped, output_path)
     metrics = evaluate(np.squeeze(warped[:,:,0,:,:]), frames, frames[template_index])
