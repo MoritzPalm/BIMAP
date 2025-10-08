@@ -136,6 +136,7 @@ def run(config:dict) -> dict:
     abs_output_path = Path.resolve(output_path)
     input_path = Path("temp_input.tif").resolve()
     template_index = find_highest_correlation(frames) if config.get("template_strategy") == "computed" else 0
+    print(filename)
     stdout, runtime = run_in_caiman("caiman",
                                     r"/data/ih26ykel/caiman_data/demos/notebooks",
                                     "mc_normcorre_callee.py",
