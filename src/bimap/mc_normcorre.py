@@ -127,7 +127,7 @@ def run(config:dict) -> dict:
     :return: dictionary with results and metrics
     """
     path = Path(config["data"]["path"])
-    abs_path = Path.resolve(path)
+    abs_path = path.resolve()
     filtered = config.get("gaussian_filtered", False)
     video, frames, filename = load_video(str(abs_path), length=400, order="CTHW", gaussian_filtered=filtered)
     video = np.squeeze(video[:, :, 0, :, :])
@@ -143,7 +143,9 @@ def run(config:dict) -> dict:
                                     str(input_path),
                                     str(artifacts_dir),
                                     filename)
-    warped, _, _ = load_video(f"{artifacts_dir}/{filename}.tif", gaussian_filtered=False, length=400, order="CTHW")
+    out_path = artifacts_dir / f"{filename}.tif"
+    print(out_path)
+    warped, _, _ = load_video(out_path, gaussian_filtered=False, length=400, order="CTHW")
     #floodfill(warped, output_path)
     metrics = evaluate(np.squeeze(warped[:,:,0,:,:]), frames, frames[template_index])
     ssim_list = metrics["ssims"]
@@ -163,7 +165,7 @@ def run(config:dict) -> dict:
     return {"runtime_s": runtime,
               "metrics": metrics,
               "artifacts": {
-                  "output_path": f"{output_path}/{filename}.tif",
+                  "output_path": str(out_path),
               }}
 
 
