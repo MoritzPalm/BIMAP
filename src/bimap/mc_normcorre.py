@@ -126,10 +126,10 @@ def run(config:dict) -> dict:
                     gaussian_filtered: (optional) whether to apply Gaussian filtering
     :return: dictionary with results and metrics
     """
-    path = config["data"]["path"]
+    path = Path(config["data"]["path"])
     abs_path = Path.resolve(path)
     video, frames, filename = load_video(path, length=400, order="CTHW")
-    output_path = config["run"]["artifacts_dir"]
+    output_path = Path(config["run"]["artifacts_dir"])
     abs_output_path = Path.resolve(output_path)
     filtered = config.get("gaussian_filtered", False)
     template_index = config.get("template_strategy")
