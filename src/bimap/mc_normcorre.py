@@ -172,7 +172,7 @@ if __name__ == "__main__":
             "path": "/data/ih26ykel/BIMAP/data/input/strong_movement/b5czi.tif",
         },
         "run": {
-            "artifacts_dir": "/data/ih26ykel/BIMAP/data/output/normcorre",
+            "artifacts_dir": "/data/ih26ykel/BIMAP/data/output/normcorre/artifacts",
         }
     }
     result = run(config)
