@@ -136,12 +136,12 @@ def run(config:dict) -> dict:
     abs_output_path = Path.resolve(output_path)
     input_path = Path("temp_input.tif").resolve()
     template_index = find_highest_correlation(frames) if config.get("template_strategy") == "computed" else 0
-    print(filename)
     stdout, runtime = run_in_caiman("caiman",
                                     r"/data/ih26ykel/caiman_data/demos/notebooks",
                                     "mc_normcorre_callee.py",
                                     str(input_path),
-                                    str(abs_output_path))
+                                    str(abs_output_path),
+                                    filename)
     warped, _, _ = load_video(f"{output_path}/{filename}.tif", gaussian_filtered=False, length=400, order="CTHW")
     #floodfill(warped, output_path)
     metrics = evaluate(np.squeeze(warped[:,:,0,:,:]), frames, frames[template_index])

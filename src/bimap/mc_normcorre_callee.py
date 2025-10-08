@@ -21,7 +21,7 @@ border_nan = "copy"  # replicate values along the boundary (if True, fill in wit
 
 def main() -> None:
     """Perform motion correction using CaImAn's Normcorre algorithm."""
-    filename = Path(sys.argv[1]).stem
+    filename = str(sys.argv[3])
     output_path = sys.argv[2]
     movie = cm.load(sys.argv[1])
     start_time = time.time()
