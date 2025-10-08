@@ -131,14 +131,12 @@ def run(config:dict) -> dict:
     video, frames, filename = load_video(path, length=400, order="CTHW")
     output_path = Path(config["run"]["artifacts_dir"])
     abs_output_path = Path.resolve(output_path)
-    filtered = config.get("gaussian_filtered", False)
-    template_index = config.get("template_strategy")
     template_index = find_highest_correlation(frames) if config.get("template_strategy") == "computed" else 0
     stdout, runtime = run_in_caiman("caiman",
                                     r"/data/ih26ykel/caiman_data/demos/notebooks",
                                     "mc_normcorre_callee.py",
-                                    abs_path,
-                                    abs_output_path)
+                                    str(abs_path),
+                                    str(abs_output_path))
     warped, _, _ = load_video(f"{output_path}/{filename}.tif", gaussian_filtered=False, length=400, order="CTHW")
     #floodfill(warped, output_path)
     metrics = evaluate(warped[:,:,0,:,:], frames, frames[template_index])
@@ -164,9 +162,19 @@ def run(config:dict) -> dict:
 
 
 if __name__ == "__main__":
-    out = run_in_caiman("caiman",
-                        r"/data/ih26ykel/caiman_data/demos/notebooks",
-                        "mc_normcorre_callee.py",
-                        "/data/ih26ykel/BIMAP/data/input/strong_movement/b5czi.tif",
-                        "/data/ih26ykel/BIMAP/data/output/normcorre")
-    logger.debug(out)
+    config = {
+        "data": {
+            "path": "/data/ih26ykel/BIMAP/data/input/strong_movement/b5czi.tif",
+        },
+        "run": {
+            "artifacts_dir": "/data/ih26ykel/BIMAP/data/output/normcorre",
+        }
+    }
+    result = run(config)
+    #out = run_in_caiman("caiman",
+    #                    r"/data/ih26ykel/caiman_data/demos/notebooks",
+    #                    "mc_normcorre_callee.py",
+    #                    "/data/ih26ykel/BIMAP/data/input/strong_movement/b5czi.tif",
+    #                    "/data/ih26ykel/BIMAP/data/output/normcorre")
+    #logger.debug(out)
+    logger.debug(result)
