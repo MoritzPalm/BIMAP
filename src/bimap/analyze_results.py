@@ -1,23 +1,24 @@
 """
-Paper-ready tables with ONE ROW PER CONFIGURATION (read from config.json), averaged over videos,
-including a *crispness improvement (%)* vs the **uncorrected input video**.
+Paper-ready tables with ONE ROW PER CONFIGURATION (read from config.json), averaged over experiments,
+including metrics pulled correctly from result.json and per_frame.csv.
 
 What it does
 ------------
 1) Walks runs/ tree (no table.csv).
 2) For each run, reads:
    - config.json  -> parameters (mapped into cfg.* columns)
-   - result.json  -> (only non-metric metadata like module/ok); metrics are NOT taken from summaries
-   - per_frame.csv -> fills SSIM and (if present) input/output crispness
-     (falls back to per_frame_recomputed.csv only when necessary)
-   - Loads the run's output artifact with utils.load_video and computes corr_with_mean itself
-3) Averages metrics per video (to avoid multiple-runs bias).
+   - result.json  -> metrics.summary{mse_mean, mse_std, crispness_improvement} + top-level runtime_s
+   - per_frame.csv -> computes per-run SSIM and MSE (mean/std over frames); also fills input/output crispness if present
+     (falls back to per_frame_recomputed.csv when necessary)
+   - Loads the run's output artifact with utils.load_video and computes corr_with_mean itself (optional extra)
+3) Aggregation:
+   - First average within each experiment (exp_name) -> one row per (group, module, exp_name, configuration).
+   - Then compute mean ± std ACROSS EXPERIMENTS for each (group, module, configuration).
 4) Builds per-method tables with one row per configuration (cfg.*), reporting:
-   - SSIM, MSE, Crispness (means, stds, and "mean ± std"),
-   - Runtime (mean ± std),
-   - **Crispness % improvement vs uncorrected input**:
-       per-video % change averaged across videos (mean ± std).
-   - corr_with_mean (mean and std columns, computed from the video)
+   - SSIM, MSE, Crispness (means, stds, and "mean ± std") across experiments,
+   - Runtime (mean ± std) across experiments,
+   - crispness_improvement from result.json (mean ± std) across experiments,
+   - corr_with_mean (mean of means/stds across experiments, if available).
 5) Writes one CSV per method and a combined CSV.
 
 Outputs
@@ -40,13 +41,8 @@ import pandas as pd
 from utils import crispness, load_video
 
 # ----------------- config -----------------
-METRICS = [
-    ("m.ssim_mean", "ssim"),
-    ("m.mse_mean", "mse"),
-    ("m.crispness_improvement", "crisp_impr_legacy"),  # legacy field if present
-]
-CRISPNESS_CANON_COL = "m.crispness"          # processed/output crispness
-CRISPNESS_INPUT_COL = "m.crispness_input"    # uncorrected input crispness
+CRISPNESS_CANON_COL = "m.crispness"          # processed/output crispness (per-run; later aggregated)
+CRISPNESS_INPUT_COL = "m.crispness_input"    # uncorrected input crispness (per-run; later aggregated)
 RUNTIME = "runtime_s"
 
 REQUIRED_PARAM_COLS = [
@@ -94,7 +90,6 @@ def load_config_json(run_dir: Path) -> dict:
     return load_json(run_dir / "config.json")
 
 
-# ---- per-frame loaders (CSV-first, recomputed CSV fallback) ----
 def _read_csv_safe(path: Path) -> pd.DataFrame:
     if path.exists():
         try:
@@ -215,7 +210,7 @@ def metric_sort_key(df: pd.DataFrame) -> tuple[list[str], list[bool]]:
     if "rt_mean" in df.columns:
         cols.append("rt_mean");   asc.append(True)
     if not cols:
-        cols, asc = (["videos"], [False]) if "videos" in df.columns else ([], [])
+        cols, asc = (["experiments"], [False]) if "experiments" in df.columns else ([], [])
     return cols, asc
 
 
@@ -257,34 +252,6 @@ def extract_cfg_from_config_json(cfgj: dict) -> dict[str, Any]:
 
 
 # ----------------- scanning + enrichment -----------------
-CRISP_OUT_KEYS = [
-    "m.crispness_out_mean", "crispness_out_mean",
-    "m.crispness_mean", "crispness_mean",
-    "m.crispness", "crispness",
-    "crispness_out.mean", "crispness.mean",
-]
-CRISP_IN_KEYS = [
-    "m.crispness_in_mean", "crispness_in_mean",
-    "m.crispness_input_mean", "crispness_input_mean",
-    "m.crispness_input", "crispness_input",
-    "crispness_input.mean", "crispness_in.mean",
-    "crispness_raw", "raw_crispness", "input_crispness",
-]
-SSIM_KEYS = ["m.ssim_mean", "ssim_mean"]
-MSE_KEYS  = ["m.mse_mean", "mse_mean"]
-CWM_MEAN_KEYS = ["m.corr_with_mean_mean", "corr_with_mean_mean", "corr_with_mean.mean"]
-CWM_STD_KEYS  = ["m.corr_with_mean_std",  "corr_with_mean_std",  "corr_with_mean.std"]
-
-
-def _pick_first_flat(flat: dict[str, Any], candidates: list[str]) -> float:
-    for k in candidates:
-        if k in flat:
-            val = _safe_float(flat.get(k))
-            if not np.isnan(val):
-                return val
-    return np.nan
-
-
 def _resolve_path(candidate: str | None, base_dir: Path) -> Path | None:
     if not candidate:
         return None
@@ -298,21 +265,15 @@ def _resolve_path(candidate: str | None, base_dir: Path) -> Path | None:
     return p3 if (p3.is_file() or p3.is_dir()) else None
 
 
-# ---- find a loadable artifact path & compute corr_with_mean from video ----
 def _find_artifact_for_video(run_dir: Path) -> Path | None:
     """Only accept .mp4 or .tif/.tiff artifacts; explicitly skip any file named 'video.mp4'."""
     art = run_dir / "artifacts"
-
-    # .mp4 files except 'video.mp4'
     mp4s = [p for p in art.glob("*.mp4") if p.is_file() and p.name.lower() != "video.mp4"]
     if mp4s:
         return sorted(mp4s)[0]
-
-    # multi-page TIFFs
     tifs = [p for p in list(art.glob("*.tif")) + list(art.glob("*.tiff")) if p.is_file()]
     if tifs:
         return sorted(tifs)[0]
-
     return None
 
 
@@ -394,6 +355,28 @@ def compute_input_crispness_from_config(cfgj: dict, run_dir: Path) -> float:
         return np.nan
 
 
+def extract_metrics_from_result_json(resj: dict) -> dict[str, float]:
+    """Pull metrics from result.json:
+       - metrics.summary.{mse_mean, mse_std, crispness_improvement}
+       - top-level runtime_s
+    """
+    out = {
+        "res.mse_mean": np.nan,
+        "res.mse_std": np.nan,
+        "res.crispness_improvement": np.nan,
+        "runtime_s": np.nan,
+    }
+    try:
+        summ = (resj.get("metrics") or {}).get("summary") or {}
+        out["res.mse_mean"] = _safe_float(summ.get("mse_mean"))
+        out["res.mse_std"] = _safe_float(summ.get("mse_std"))
+        out["res.crispness_improvement"] = _safe_float(summ.get("crispness_improvement"))
+        out["runtime_s"] = _safe_float(resj.get("runtime_s"))
+    except Exception:
+        pass
+    return out
+
+
 def scan_runs_tree(runs_root: Path) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
     if not runs_root.exists():
@@ -408,7 +391,6 @@ def scan_runs_tree(runs_root: Path) -> pd.DataFrame:
                             resj = load_result_json(run_dir)
                             cfgj = load_config_json(run_dir)
 
-                            # Flatten `result.json` (but DO NOT use its metric summaries)
                             res_flat = flatten_dict(resj)
 
                             # cfg from result.json (flattened)
@@ -440,15 +422,7 @@ def scan_runs_tree(runs_root: Path) -> pd.DataFrame:
                                 except Exception:
                                     pass
 
-                            ssim_val = np.nan
-                            mse_val = np.nan
-                            crisp_out = np.nan
-                            crisp_in = np.nan
-
-                            if np.isnan(_safe_float(crisp_in)):
-                                ci = compute_input_crispness_from_config(cfgj, run_dir)
-                                if not np.isnan(ci):
-                                    crisp_in = ci
+                            metrics_from_res = extract_metrics_from_result_json(resj)
 
                             row = {
                                 "group": group_dir.name,
@@ -459,17 +433,25 @@ def scan_runs_tree(runs_root: Path) -> pd.DataFrame:
                                 "module": module if module is not None else "-",
                                 "ok": ok,
 
-                                "m.ssim_mean": _safe_float(ssim_val),
-                                "m.mse_mean": _safe_float(mse_val),
-                                "m.crispness_improvement": np.nan,
+                                # per-frame metrics will be filled later
+                                "pf.ssim_mean": np.nan,
+                                "pf.ssim_std":  np.nan,
+                                "pf.mse_mean":  np.nan,
+                                "pf.mse_std":   np.nan,
 
-                                CRISPNESS_CANON_COL: _safe_float(crisp_out),
-                                CRISPNESS_INPUT_COL: _safe_float(crisp_in),
+                                # crispness placeholders (per-run means)
+                                CRISPNESS_CANON_COL: np.nan,
+                                CRISPNESS_INPUT_COL: np.nan,
 
+                                # corr with mean (from artifact video)
                                 "m.corr_with_mean_mean": _safe_float(cwm_mean),
                                 "m.corr_with_mean_std":  _safe_float(cwm_std),
 
-                                "runtime_s": _safe_float(resj.get("runtime_s")),
+                                # result.json metrics + runtime
+                                "res.mse_mean": metrics_from_res["res.mse_mean"],
+                                "res.mse_std": metrics_from_res["res.mse_std"],
+                                "res.crispness_improvement": metrics_from_res["res.crispness_improvement"],
+                                "runtime_s": metrics_from_res["runtime_s"],
                             }
                             row.update(cfg_flat)
                             rows.append(row)
@@ -480,46 +462,124 @@ def scan_runs_tree(runs_root: Path) -> pd.DataFrame:
         raise SystemExit("No runs found under runs/ .")
     return df
 
+def _read_aci_means(run_dir: Path) -> tuple[float, float]:
+    """
+    Read artifact_crispness_index.csv and return (out_mean, in_mean) as floats or NaN.
+    """
+    aci = _read_csv_safe(run_dir / "artifact_crispness_index.csv")
+    if aci.empty:
+        return (np.nan, np.nan)
+
+    out_mean = np.nan
+    in_mean = np.nan
+
+    # Output crispness candidates
+    for c in ("crispness", "crispness_out", "crisp_out", "m_crispness"):
+        if c in aci.columns:
+            vals = pd.to_numeric(aci[c], errors="coerce").dropna()
+            if len(vals) > 0:
+                out_mean = float(vals.mean())
+                break
+
+    # Input crispness candidates (optional, if your ACI has them)
+    for c in ("crispness_input", "crispness_in", "crispness_raw", "raw_crispness", "input_crispness", "crisp_in"):
+        if c in aci.columns:
+            vals = pd.to_numeric(aci[c], errors="coerce").dropna()
+            if len(vals) > 0:
+                in_mean = float(vals.mean())
+                break
+
+    return (out_mean, in_mean)
 
 def enrich_with_per_frame(runs_root: Path, df: pd.DataFrame) -> pd.DataFrame:
-    if "m.ssim_mean" not in df.columns:
-        df["m.ssim_mean"] = np.nan
+    # Ensure target columns exist
+    for c in ["pf.ssim_mean", "pf.ssim_std", "pf.mse_mean", "pf.mse_std"]:
+        if c not in df.columns:
+            df[c] = np.nan
     if CRISPNESS_CANON_COL not in df.columns:
         df[CRISPNESS_CANON_COL] = np.nan
     if CRISPNESS_INPUT_COL not in df.columns:
         df[CRISPNESS_INPUT_COL] = np.nan
 
     for idx, row in df.iterrows():
-        need_ssim = pd.isna(df.at[idx, "m.ssim_mean"])
-        need_cout = pd.isna(df.at[idx, CRISPNESS_CANON_COL])
-        need_cin  = pd.isna(df.at[idx, CRISPNESS_INPUT_COL])
-        if not (need_ssim or need_cout or need_cin):
-            continue
+        run_dir = (
+            runs_root
+            / str(row["group"])
+            / str(row["exp_name"])
+            / str(row["data.category"])
+            / str(row["data.video_id"])
+            / f"run_{row['run_id']}"
+        )
 
-        run_dir = runs_root / str(row["group"]) / str(row["exp_name"]) / str(row["data.category"]) / str(row["data.video_id"]) / f"run_{row['run_id']}"
+        module_name = str(row.get("module", "")).strip().lower()
+
+        # --- PRIMARY path for NoRMCorre: artifact_crispness_index.csv ---
+        if module_name == "normcorre":
+            aci_out, aci_in = _read_aci_means(run_dir)
+            if not np.isnan(aci_out):
+                df.at[idx, CRISPNESS_CANON_COL] = aci_out
+            if not np.isnan(aci_in):
+                df.at[idx, CRISPNESS_INPUT_COL] = aci_in
+
+        # --- Per-frame CSVs are still the primary source for SSIM/MSE;
+        #     and remain a fallback for crispness when needed. ---
         pf = load_per_frame_preferring_csv(run_dir)
         if pf.empty:
             continue
 
-        if need_ssim and "ssim" in pf.columns and len(pf["ssim"]) > 0:
-            ssim_mean = pd.to_numeric(pf["ssim"], errors="coerce").dropna().mean()
-            if not np.isnan(ssim_mean):
-                df.at[idx, "m.ssim_mean"] = float(ssim_mean)
+        # SSIM over frames
+        if "ssim" in pf.columns:
+            s = pd.to_numeric(pf["ssim"], errors="coerce").dropna()
+            if len(s) > 0:
+                df.at[idx, "pf.ssim_mean"] = float(s.mean())
+                df.at[idx, "pf.ssim_std"]  = float(s.std(ddof=0))
 
-        if need_cout:
-            for c in ["crispness_out", "crispness", "crisp_out"]:
-                if c in pf.columns:
-                    vals = pd.to_numeric(pf[c], errors="coerce").dropna()
+        # MSE over frames
+        if "mse" in pf.columns:
+            m = pd.to_numeric(pf["mse"], errors="coerce").dropna()
+            if len(m) > 0:
+                df.at[idx, "pf.mse_mean"] = float(m.mean())
+                df.at[idx, "pf.mse_std"]  = float(m.std(ddof=0))
+
+        # Output crispness from per_frame (fallback for all; or primary for non-NoRMCorre)
+        if pd.isna(df.at[idx, CRISPNESS_CANON_COL]) or module_name != "normcorre":
+            for c_src, c_dst in (("crispness_out", CRISPNESS_CANON_COL),
+                                 ("crispness", CRISPNESS_CANON_COL),
+                                 ("crisp_out", CRISPNESS_CANON_COL)):
+                if pd.isna(df.at[idx, c_dst]) and (c_src in pf.columns):
+                    vals = pd.to_numeric(pf[c_src], errors="coerce").dropna()
                     if len(vals) > 0:
-                        df.at[idx, CRISPNESS_CANON_COL] = float(vals.mean()); break
+                        df.at[idx, c_dst] = float(vals.mean())
 
-        if need_cin:
-            for c in ["crispness_input", "crispness_in", "crispness_raw", "raw_crispness", "input_crispness", "crisp_in"]:
-                if c in pf.columns:
-                    vals = pd.to_numeric(pf[c], errors="coerce").dropna()
+        # Input crispness from per_frame (fallback for all)
+        if pd.isna(df.at[idx, CRISPNESS_INPUT_COL]):
+            for c_src, c_dst in (("crispness_input", CRISPNESS_INPUT_COL),
+                                 ("crispness_in", CRISPNESS_INPUT_COL),
+                                 ("crispness_raw", CRISPNESS_INPUT_COL),
+                                 ("raw_crispness", CRISPNESS_INPUT_COL),
+                                 ("input_crispness", CRISPNESS_INPUT_COL),
+                                 ("crisp_in", CRISPNESS_INPUT_COL)):
+                if c_src in pf.columns:
+                    vals = pd.to_numeric(pf[c_src], errors="coerce").dropna()
                     if len(vals) > 0:
-                        df.at[idx, CRISPNESS_INPUT_COL] = float(vals.mean()); break
+                        df.at[idx, c_dst] = float(vals.mean())
 
+    return df
+
+
+def unify_metric_columns(df: pd.DataFrame) -> pd.DataFrame:
+    # SSIM from per_frame
+    df["m.ssim_mean"] = df["pf.ssim_mean"]
+    df["m.ssim_std"]  = df["pf.ssim_std"]
+
+    # MSE: prefer result.json summary if present; else per_frame
+    df["m.mse_mean"] = df["res.mse_mean"].where(df["res.mse_mean"].notna(), df["pf.mse_mean"])
+    df["m.mse_std"]  = df["res.mse_std"].where(df["res.mse_std"].notna(), df["pf.mse_std"])
+
+    # Crispness improvement (as reported by result.json summary)
+    df["m.crispness_improvement"] = df.get("res.crispness_improvement", np.nan)
+
+    # runtime_s already present (top-level)
     return df
 
 
@@ -538,6 +598,7 @@ def _looks_like_identity(row: pd.Series) -> bool:
 
 
 def infer_missing_input_crispness(df: pd.DataFrame) -> pd.DataFrame:
+    # Optional: try to infer input crispness from identity-like runs (kept for reference)
     key_vid = ["group", "module", "data.video_id"]
     df["_is_identity"] = df.apply(_looks_like_identity, axis=1)
 
@@ -548,11 +609,6 @@ def infer_missing_input_crispness(df: pd.DataFrame) -> pd.DataFrame:
         val = np.nan
         if not ident.empty:
             val = float(pd.to_numeric(ident[CRISPNESS_CANON_COL], errors="coerce").dropna().median())
-        if np.isnan(val):
-            cand = g[(g.get("cfg.gaussian_filtered", pd.Series([np.nan]*len(g))).astype("object") == False)]
-            cand_vals = pd.to_numeric(cand[CRISPNESS_CANON_COL], errors="coerce").dropna() if CRISPNESS_CANON_COL in cand else pd.Series(dtype=float)
-            if len(cand_vals) > 0:
-                val = float(cand_vals.median())
         if not np.isnan(val):
             d = dict(zip(key_vid, keys, strict=False))
             d["inferred_input_crispness"] = val
@@ -604,130 +660,119 @@ def select_param_columns_for_method(df_m: pd.DataFrame) -> list[str]:
     return final
 
 
-def per_video_means(df: pd.DataFrame, key_cols: list[str]) -> pd.DataFrame:
-    agg_spec = {}
-    for mcol, _short in METRICS:
-        if mcol in df.columns:
-            agg_spec[mcol] = (mcol, "mean")
-    if CRISPNESS_CANON_COL in df.columns:
-        agg_spec[CRISPNESS_CANON_COL] = (CRISPNESS_CANON_COL, "mean")
-    if CRISPNESS_INPUT_COL in df.columns:
-        agg_spec[CRISPNESS_INPUT_COL] = (CRISPNESS_INPUT_COL, "mean")
-    if RUNTIME in df.columns:
-        agg_spec[RUNTIME] = (RUNTIME, "mean")
-    if "m.corr_with_mean_mean" in df.columns:
-        agg_spec["m.corr_with_mean_mean"] = ("m.corr_with_mean_mean", "mean")
-    if "m.corr_with_mean_std" in df.columns:
-        agg_spec["m.corr_with_mean_std"] = ("m.corr_with_mean_std", "mean")
+def per_experiment_means(df: pd.DataFrame, param_cols: list[str]) -> pd.DataFrame:
+    """
+    Produce ONE row per (group, module, exp_name, cfg...) by averaging over videos (and runs) inside that experiment.
+    """
+    keys = ["group", "module", "exp_name"] + param_cols
+    agg = {
+        "m.ssim_mean": ("m.ssim_mean", "mean"),
+        "m.ssim_std":  ("m.ssim_std",  "mean"),   # average frame-stds within experiment
+        "m.mse_mean":  ("m.mse_mean",  "mean"),
+        "m.mse_std":   ("m.mse_std",   "mean"),
+        "m.crispness_improvement": ("m.crispness_improvement", "mean"),
+        CRISPNESS_CANON_COL: (CRISPNESS_CANON_COL, "mean"),
+        CRISPNESS_INPUT_COL: (CRISPNESS_INPUT_COL, "mean"),
+        "runtime_s": ("runtime_s", "mean"),
+        "m.corr_with_mean_mean": ("m.corr_with_mean_mean", "mean"),
+        "m.corr_with_mean_std":  ("m.corr_with_mean_std",  "mean"),
+    }
+    agg = {k: v for k, v in agg.items() if k in df.columns}
+    return df.groupby(keys, dropna=False).agg(**agg).reset_index()
 
-    return df.groupby(key_cols, dropna=False).agg(**agg_spec).reset_index()
 
+def across_experiments_mean_std(exp_df: pd.DataFrame, param_cols: list[str]) -> pd.DataFrame:
+    """
+    Aggregate across experiments (exp_name) to get mean ± std per (group, module, cfg...).
+    """
+    keys = ["group", "module"] + param_cols
+    metric_cols = [c for c in [
+        "m.ssim_mean", "m.ssim_std",
+        "m.mse_mean",  "m.mse_std",
+        "m.crispness_improvement",
+        CRISPNESS_CANON_COL, CRISPNESS_INPUT_COL,
+        "runtime_s",
+        "m.corr_with_mean_mean", "m.corr_with_mean_std",
+    ] if c in exp_df.columns]
 
-def add_crispness_pct_vs_input(pv: pd.DataFrame) -> pd.DataFrame:
-    if CRISPNESS_CANON_COL not in pv.columns or CRISPNESS_INPUT_COL not in pv.columns:
-        pv["crisp_pct_vs_input"] = np.nan
-        return pv
+    agg = {}
+    for c in metric_cols:
+        agg[f"{c}_mean"] = (c, "mean")
+        agg[f"{c}_std"]  = (c, "std")
 
-    base_keys = ["group", "module", "data.video_id"]
-    base = (
-        pv.groupby(base_keys, dropna=False)[CRISPNESS_INPUT_COL]
-        .mean()
-        .rename("crisp_base")
-        .reset_index()
-    )
-
-    pv = pv.merge(base, on=base_keys, how="left")
-    denom = pv["crisp_base"].where(pv["crisp_base"].abs() > 1e-12, np.nan)
-    pv["crisp_pct_vs_input"] = 100.0 * (pv[CRISPNESS_CANON_COL] - pv["crisp_base"]) / denom
-    return pv
+    out = exp_df.groupby(keys, dropna=False).agg(**agg).reset_index()
+    out["experiments"] = exp_df.groupby(keys, dropna=False)["exp_name"].nunique().values
+    return out
 
 
 def summarize_method(df_m: pd.DataFrame, runs_root: Path, group: str, module: str) -> pd.DataFrame:
     param_cols = select_param_columns_for_method(df_m)
 
     work = df_m.copy()
-    for c,_ in METRICS:
-        if c in work.columns:
-            work[c] = pd.to_numeric(work[c], errors="coerce")
-    for col in [CRISPNESS_CANON_COL, CRISPNESS_INPUT_COL, RUNTIME, "m.corr_with_mean_mean", "m.corr_with_mean_std"]:
+    # ensure numeric
+    for col in [
+        "m.ssim_mean","m.ssim_std",
+        "m.mse_mean","m.mse_std",
+        "m.crispness_improvement",
+        CRISPNESS_CANON_COL, CRISPNESS_INPUT_COL,
+        "runtime_s", "m.corr_with_mean_mean", "m.corr_with_mean_std"
+    ]:
         if col in work.columns:
             work[col] = pd.to_numeric(work[col], errors="coerce")
 
-    key_video = ["group", "module", "data.video_id"] + param_cols
-    pv = per_video_means(work, key_video)
+    # 1) per-experiment means (average inside experiment)
+    exp_df = per_experiment_means(work, param_cols)
 
-    pv = add_crispness_pct_vs_input(pv)
+    # 2) across-experiments mean & std per configuration
+    summ = across_experiments_mean_std(exp_df, param_cols)
 
-    key_cfg = ["group", "module"] + param_cols
-    agg = {}
-    if "m.ssim_mean" in pv.columns:
-        agg["ssim_mean"] = ("m.ssim_mean", "mean")
-        agg["ssim_std"]  = ("m.ssim_mean", "std")
-    if "m.mse_mean" in pv.columns:
-        agg["mse_mean"]  = ("m.mse_mean", "mean")
-        agg["mse_std"]   = ("m.mse_mean", "std")
-    if "m.crispness_improvement" in pv.columns:
-        agg["crisp_impr_legacy_mean"] = ("m.crispness_improvement", "mean")
-        agg["crisp_impr_legacy_std"]  = ("m.crispness_improvement", "std")
-    if CRISPNESS_CANON_COL in pv.columns:
-        agg["crisp_mean"] = (CRISPNESS_CANON_COL, "mean")
-        agg["crisp_std"]  = (CRISPNESS_CANON_COL, "std")
-    if "crisp_pct_vs_input" in pv.columns:
-        agg["crisp_pct_mean"] = ("crisp_pct_vs_input", "mean")
-        agg["crisp_pct_std"]  = ("crisp_pct_vs_input", "std")
-    if RUNTIME in pv.columns:
-        agg["rt_mean"]   = (RUNTIME, "mean")
-        agg["rt_std"]    = (RUNTIME, "std")
-    if "m.corr_with_mean_mean" in pv.columns:
-        agg["corr_with_mean_mean"] = ("m.corr_with_mean_mean", "mean")
-    if "m.corr_with_mean_std" in pv.columns:
-        agg["corr_with_mean_std"]  = ("m.corr_with_mean_std", "mean")
+    # Pretty-print columns
+    if "m.ssim_mean_mean" in summ.columns and "m.ssim_mean_std" in summ.columns:
+        summ["ssim_pm"] = [fmt_pm(m, s, 3) for m, s in zip(summ["m.ssim_mean_mean"], summ["m.ssim_mean_std"], strict=False)]
+    if "m.mse_mean_mean" in summ.columns and "m.mse_mean_std" in summ.columns:
+        summ["mse_pm"]  = [fmt_pm_mse(m, s) for m, s in zip(summ["m.mse_mean_mean"], summ["m.mse_mean_std"], strict=False)]
+    if f"{CRISPNESS_CANON_COL}_mean" in summ.columns and f"{CRISPNESS_CANON_COL}_std" in summ.columns:
+        summ["crisp_pm"]= [fmt_pm(m, s, 3) for m, s in zip(summ[f"{CRISPNESS_CANON_COL}_mean"], summ[f"{CRISPNESS_CANON_COL}_std"], strict=False)]
+    if "runtime_s_mean" in summ.columns and "runtime_s_std" in summ.columns:
+        summ["rt_pm"]   = [fmt_pm(m, s, 1) for m, s in zip(summ["runtime_s_mean"], summ["runtime_s_std"], strict=False)]
 
-    vids = pv.groupby(key_cfg, dropna=False)["data.video_id"].nunique().rename("videos").reset_index()
-    summ = pv.groupby(key_cfg, dropna=False).agg(**agg).reset_index().merge(vids, on=key_cfg, how="left")
-
-    if "ssim_mean" in summ.columns:
-        summ["ssim_pm"] = [fmt_pm(m, s, 3) for m,s in zip(summ["ssim_mean"], summ["ssim_std"], strict=False)]
-    if "mse_mean" in summ.columns:
-        summ["mse_pm"]  = [fmt_pm_mse(m, s) for m,s in zip(summ["mse_mean"], summ["mse_std"], strict=False)]
-    if "crisp_mean" in summ.columns:
-        summ["crisp_pm"]= [fmt_pm(m, s, 3) for m,s in zip(summ["crisp_mean"], summ["crisp_std"], strict=False)]
-    if "crisp_pct_mean" in summ.columns:
-        def fmt_pct(m, s):
-            if pd.isna(m) or pd.isna(s):
-                return ""
-            return f"{m:.1f}% ± {s:.1f}%"
-        summ["crisp_pct_pm"] = [fmt_pct(m, s) for m,s in zip(summ["crisp_pct_mean"], summ["crisp_pct_std"], strict=False)]
-    if "rt_mean" in summ.columns:
-        summ["rt_pm"]   = [fmt_pm(m, s, 1) for m,s in zip(summ["rt_mean"], summ["rt_std"], strict=False)]
-
-    sort_cols, sort_asc = metric_sort_key(summ)
-    if sort_cols:
-        summ = summ.sort_values(sort_cols, ascending=sort_asc).reset_index(drop=True)
+    # Sorting preference
+    fake_for_sort = pd.DataFrame({
+        "ssim_mean": summ.get("m.ssim_mean_mean", pd.Series(dtype=float)),
+        "mse_mean":  summ.get("m.mse_mean_mean",  pd.Series(dtype=float)),
+        "rt_mean":   summ.get("runtime_s_mean",   pd.Series(dtype=float)),
+        "experiments": summ.get("experiments", pd.Series(dtype=float)),
+    })
+    sort_cols, sort_asc = metric_sort_key(fake_for_sort)
+    mapped_sort_cols = []
+    for c in sort_cols:
+        if c == "ssim_mean": mapped_sort_cols.append("m.ssim_mean_mean")
+        elif c == "mse_mean": mapped_sort_cols.append("m.mse_mean_mean")
+        elif c == "rt_mean":  mapped_sort_cols.append("runtime_s_mean")
+        elif c == "experiments": mapped_sort_cols.append("experiments")
+    if mapped_sort_cols:
+        summ = summ.sort_values(mapped_sort_cols, ascending=sort_asc).reset_index(drop=True)
         summ["rank_primary"] = np.arange(1, len(summ)+1)
     else:
         summ["rank_primary"] = np.nan
 
+    # Cast booleans to strings for readability
     for c in param_cols:
         if c in summ.columns:
             if (summ[c].dtype == bool) or summ[c].dropna().map(lambda x: isinstance(x, (bool, np.bool_))).all():
                 summ[c] = summ[c].map({True: "True", False: "False"}).astype("object")
 
-    cols = ["group", "module"] + param_cols + ["videos"]
-    for base in ("ssim", "mse"):
-        if f"{base}_mean" in summ.columns:
-            cols += [f"{base}_mean", f"{base}_std", f"{base}_pm"]
-    if "crisp_mean" in summ.columns:
-        cols += ["crisp_mean", "crisp_std", "crisp_pm"]
-    if "crisp_pct_mean" in summ.columns:
-        cols += ["crisp_pct_mean", "crisp_pct_std", "crisp_pct_pm"]
-    if "crisp_impr_legacy_mean" in summ.columns:
-        cols += ["crisp_impr_legacy_mean", "crisp_impr_legacy_std"]
-    if "corr_with_mean_mean" in summ.columns:
-        cols += ["corr_with_mean_mean", "corr_with_mean_std"]
-    if "rt_mean" in summ.columns:
-        cols += ["rt_mean", "rt_std", "rt_pm"]
-    cols += ["rank_primary"]
+    # Choose output columns
+    cols = ["group", "module"] + param_cols + ["experiments"]
+    cols += [x for x in [
+        "m.ssim_mean_mean", "m.ssim_mean_std", "ssim_pm",
+        "m.mse_mean_mean",  "m.mse_mean_std",  "mse_pm",
+        f"{CRISPNESS_CANON_COL}_mean", f"{CRISPNESS_CANON_COL}_std", "crisp_pm",
+        "m.crispness_improvement_mean", "m.crispness_improvement_std",
+        "runtime_s_mean", "runtime_s_std", "rt_pm",
+        "m.corr_with_mean_mean_mean", "m.corr_with_mean_std_mean",
+        "rank_primary",
+    ] if x in summ.columns]
     cols = [c for c in cols if c in summ.columns]
     summ = summ[cols]
 
@@ -747,16 +792,21 @@ def main():
 
     df = scan_runs_tree(runs_root)
 
-    df = enrich_with_per_frame(runs_root, df)
-
+    # Only successful runs
     if "ok" in df.columns:
         df = df[df["ok"] == True]
     if df.empty:
         raise SystemExit("No successful runs to analyze (ok==True).")
 
-    df = normalize_flags_and_aliases(df)
+    # Fill from per_frame
+    df = enrich_with_per_frame(runs_root, df)
 
-    df = infer_missing_input_crispness(df)
+    # Normalize flags and unify metrics
+    df = normalize_flags_and_aliases(df)
+    df = unify_metric_columns(df)
+
+    # (Optional) infer input crispness for reference if missing (doesn't affect improvement from result.json)
+    #df = infer_missing_input_crispness(df)
 
     methods = df[["group", "module"]].drop_duplicates().sort_values(["group", "module"]).to_records(index=False)
 

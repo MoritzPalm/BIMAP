@@ -163,7 +163,7 @@ def run(config:dict) -> dict:
             f"Artifacts dir contents:\n{listing}\n"
             f"Other candidates I see:\n" + "\n".join(candidates)
         )
-    warped, _, _ = load_video_legacy(str(out_path), gaussian_filtered=False, length=400,)
+    warped, _, _ = load_video_legacy(str(out_path), gaussian_filtered=False, length=400)
     #floodfill(warped, output_path)
     metrics = evaluate(np.squeeze(warped[:,:,0,:,:]), frames, frames[template_index])
     ssim_list = metrics["ssims"]

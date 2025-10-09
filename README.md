@@ -66,6 +66,7 @@ output/
 
 #### Other Scripts
 ```BIMAP/src/bimap/plotting``` contains all scripts to generate the plots used in the paper.
+
 ```BIMAP/src/notebooks``` contains different jupyter notebooks used in the early stages of development.
 
 
