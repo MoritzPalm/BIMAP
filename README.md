@@ -38,7 +38,7 @@ The expected structure is: /data/strong_movement/ for videos with strong movemen
 
 It will generate output files in the following structure: 
 <details>
-<summary><strong>📁 Folder structure</strong> (click to expand)</summary>
+<summary><strong>Folder structure</strong> (click to expand)</summary>
 
 ```text
 output/
@@ -60,6 +60,9 @@ output/
                         └── filename.(tif|mp4)
 ```
 </details>
+
+### License
+Distributed under the MIT License. See `LICENSE` for more information.
 
 
 
