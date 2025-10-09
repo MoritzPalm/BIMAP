@@ -33,9 +33,12 @@ To run the motion correction algorithms and evaluate their performance, use the 
 ```bash
 uv run orchestrator.py --config experiments.yaml --output ../../data/output
 ```
-The default input data location as specified in the experiments.yaml file is BIMAP/data/input.
-The expected structure is: /data/strong_movement/ for videos with strong movement and /data/low_movement/ for videos with low movement.
-
+Input videos should be placed under:
+```text
+BIMAP/data/input/
+├── low_movement/
+└── strong_movement/
+```
 It will generate output files in the following structure: 
 <details>
 <summary><strong>Folder structure</strong> (click to expand)</summary>
@@ -61,8 +64,13 @@ output/
 ```
 </details>
 
+#### Other Scripts
+```BIMAP/src/bimap/plotting``` contains all scripts to generate the plots used in the paper.
+```BIMAP/src/notebooks``` contains different jupyter notebooks used in the early stages of development.
+
+
 ### License
-Distributed under the MIT License. See `LICENSE` for more information.
+Distributed under the MIT License. See `LICENSE.txt` for more information.
 
 
 
