@@ -423,5 +423,5 @@ def load_video_legacy(path, length=-1, gaussian_filtered=False):
     if length != -1:
         frames = frames[:length]
     video = torch.from_numpy(np.expand_dims(video, axis=0)).float()
-    video = video.permute(0, 2, 1, 3, 4).repeat(1, 1, 3, 1, 1).to(device)[:,:len,:,:,:]
+    video = video.permute(0, 2, 1, 3, 4).repeat(1, 1, 3, 1, 1).to(device)[:,:length,:,:,:]
     return video, frames, filename
