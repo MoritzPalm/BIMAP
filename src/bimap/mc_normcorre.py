@@ -136,13 +136,13 @@ def run(config:dict) -> dict:
     artifacts_dir = output_root / "artifacts"
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     input_path = Path("temp_input.tif").resolve()
+    out_file = (artifacts_dir / f"{filename}.tif").resolve()
     template_index = find_highest_correlation(frames) if config.get("template_strategy") == "computed" else 0
     stdout, runtime = run_in_caiman("caiman",
                                     r"/data/ih26ykel/caiman_data/demos/notebooks",
                                     "mc_normcorre_callee.py",
                                     str(input_path),
-                                    str(artifacts_dir),
-                                    filename)
+                                    str(out_file))
     wrote_path = None
     for line in stdout.splitlines():
         if line.startswith("WROTE="):

@@ -21,9 +21,8 @@ border_nan = "copy"  # replicate values along the boundary (if True, fill in wit
 
 def main() -> None:
     """Perform motion correction using CaImAn's Normcorre algorithm."""
-    filename = str(sys.argv[3])
-    output_path = Path(sys.argv[2]).expanduser().resolve()
-    output_path.mkdir(parents=True, exist_ok=True)
+    filename = Path(sys.argv[1]).stem
+    output_path = sys.argv[2]
     movie = cm.load(sys.argv[1])
     start_time = time.time()
     mc = MotionCorrect(movie, max_shifts=max_shifts,
@@ -41,16 +40,8 @@ def main() -> None:
     mc.motion_correct(save_movie=True, template=mc.total_template_rig)
     m_els = cm.load(mc.fname_tot_els)
     end_time = time.time()
-    target = output_path / f"{filename}.tif"
-    m_els.save(target)
-    if not target.exists():
-        # Try a fallback: CaImAn sometimes appends suffixes or different extensions
-        # Save as .tiff as a second attempt
-        fallback = output_path / f"{filename}.tiff"
-        m_els.save(str(fallback))
-        print(f"WROTE={fallback}")
-    else:
-        print(f"WROTE={target}")
+    m_els.save(
+        f"{output_path}/{filename}.tif")
     print(f"TIME_TAKEN={end_time - start_time}")    # noqa: T201 # print to stdout for caller to parse
 
 
