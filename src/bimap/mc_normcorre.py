@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 
 import numpy as np
-from utils import evaluate, find_highest_correlation, load_video, save_and_display_video
+from utils import evaluate, find_highest_correlation, load_video, load_video_legacy, save_and_display_video
 from floodfill import floodfill
 
 logger = logging.getLogger(__name__)
@@ -163,7 +163,7 @@ def run(config:dict) -> dict:
             f"Artifacts dir contents:\n{listing}\n"
             f"Other candidates I see:\n" + "\n".join(candidates)
         )
-    warped, _, _ = load_video(out_path, gaussian_filtered=False, length=400, order="CTHW")
+    warped, _, _ = load_video_legacy(str(out_path), gaussian_filtered=False, length=400,)
     #floodfill(warped, output_path)
     metrics = evaluate(np.squeeze(warped[:,:,0,:,:]), frames, frames[template_index])
     ssim_list = metrics["ssims"]

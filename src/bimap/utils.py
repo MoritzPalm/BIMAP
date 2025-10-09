@@ -406,3 +406,22 @@ def ensure_thw(video: np.ndarray) -> np.ndarray:
     raise ValueError(f"Unsupported video shape {video.shape}. Expected 2D, 3D (T,H,W), or 4D (T,H,W,C).")
 
 
+def load_video_legacy(path, length=-1, gaussian_filtered=False):
+    """legacy version of load_video for compatibility with existing code."""
+    filename = Path(path).stem
+    video = read_video_from_path(path)
+    if video is None:
+        raise FileNotFoundError(f"Video in {path} not found")
+    video = video.squeeze()
+    if gaussian_filtered:
+        filtered = np.empty_like(video)
+        for t in range(video.shape[0]):
+            filtered[t] = gaussian_filter(video[t], sigma=2)
+        video = filtered
+    frames = np.array([frame for frame in video], dtype=np.float32)
+    video = torch.from_numpy(np.expand_dims(video.astype(np.float32), axis=0)).float()
+    if length != -1:
+        frames = frames[:length]
+    video = torch.from_numpy(np.expand_dims(video, axis=0)).float()
+    video = video.permute(0, 2, 1, 3, 4).repeat(1, 1, 3, 1, 1).to(device)[:,:len,:,:,:]
+    return video, frames, filename
